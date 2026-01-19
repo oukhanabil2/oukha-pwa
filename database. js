@@ -1,0 +1,657 @@
+// Base de données IndexedDB pour SGA
+class SGA_Database {
+    constructor() {
+        this.db = null;
+        this.dbName = 'SGA_DB_v3';
+        this.dbVersion = 3;
+        this.initialize();
+    }
+
+    async initialize() {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(this.dbName, this.dbVersion);
+
+            request.onerror = (event) => {
+                console.error('Erreur IndexedDB:', event.target.error);
+                reject(event.target.error);
+            };
+
+            request.onsuccess = (event) => {
+                this.db = event.target.result;
+                console.log('Base de données initialisée');
+                this.initializeStores();
+                resolve(this.db);
+            };
+
+            request.onupgradeneeded = (event) => {
+                const db = event.target.result;
+                this.createStores(db);
+            };
+        });
+    }
+
+    createStores(db) {
+        // Table agents
+        if (!db.objectStoreNames.contains('agents')) {
+            const agentsStore = db.createObjectStore('agents', { keyPath: 'code' });
+            agentsStore.createIndex('groupe', 'groupe', { unique: false });
+            agentsStore.createIndex('statut', 'statut', { unique: false });
+        }
+
+        // Table planning
+        if (!db.objectStoreNames.contains('planning')) {
+            const planningStore = db.createObjectStore('planning', { 
+                keyPath: ['code_agent', 'date'] 
+            });
+            planningStore.createIndex('date', 'date', { unique: false });
+            planningStore.createIndex('agent_date', ['code_agent', 'date'], { unique: true });
+            planningStore.createIndex('shift', 'shift', { unique: false });
+        }
+
+        // Table jours fériés
+        if (!db.objectStoreNames.contains('jours_feries')) {
+            const feriesStore = db.createObjectStore('jours_feries', { keyPath: 'date' });
+        }
+
+        // Table codes panique
+        if (!db.objectStoreNames.contains('codes_panique')) {
+            const paniqueStore = db.createObjectStore('codes_panique', { keyPath: 'code_agent' });
+            paniqueStore.createIndex('code_panique', 'code_panique', { unique: true });
+        }
+
+        // Table radios
+        if (!db.objectStoreNames.contains('radios')) {
+            const radiosStore = db.createObjectStore('radios', { keyPath: 'id_radio' });
+            radiosStore.createIndex('statut', 'statut', { unique: false });
+            radiosStore.createIndex('code_agent', 'code_agent', { unique: false });
+        }
+
+        // Table historique radio
+        if (!db.objectStoreNames.contains('historique_radio')) {
+            const histStore = db.createObjectStore('historique_radio', { 
+                keyPath: 'id', 
+                autoIncrement: true 
+            });
+            histStore.createIndex('id_radio', 'id_radio', { unique: false });
+            histStore.createIndex('code_agent', 'code_agent', { unique: false });
+        }
+
+        // Table habillement
+        if (!db.objectStoreNames.contains('habillement')) {
+            const habillementStore = db.createObjectStore('habillement', { keyPath: 'code_agent' });
+        }
+
+        // Table avertissements
+        if (!db.objectStoreNames.contains('avertissements')) {
+            const avertStore = db.createObjectStore('avertissements', { 
+                keyPath: 'id', 
+                autoIncrement: true 
+            });
+            avertStore.createIndex('code_agent', 'code_agent', { unique: false });
+            avertStore.createIndex('date', 'date', { unique: false });
+        }
+
+        // Table congés période
+        if (!db.objectStoreNames.contains('conges_periode')) {
+            const congesStore = db.createObjectStore('conges_periode', { 
+                keyPath: 'id', 
+                autoIncrement: true 
+            });
+            congesStore.createIndex('code_agent', 'code_agent', { unique: false });
+            congesStore.createIndex('date_debut', 'date_debut', { unique: false });
+        }
+    }
+
+    initializeStores() {
+        // Ajouter des données par défaut si nécessaire
+    }
+
+    // Méthodes CRUD génériques
+    async add(storeName, data) {
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([storeName], 'readwrite');
+            const store = transaction.objectStore(storeName);
+            const request = store.add(data);
+
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async put(storeName, data) {
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([storeName], 'readwrite');
+            const store = transaction.objectStore(storeName);
+            const request = store.put(data);
+
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async get(storeName, key) {
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([storeName], 'readonly');
+            const store = transaction.objectStore(storeName);
+            const request = store.get(key);
+
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async getAll(storeName, indexName = null, query = null) {
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([storeName], 'readonly');
+            let store = transaction.objectStore(storeName);
+            
+            if (indexName) {
+                store = store.index(indexName);
+            }
+
+            const request = query ? store.getAll(query) : store.getAll();
+            
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async delete(storeName, key) {
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([storeName], 'readwrite');
+            const store = transaction.objectStore(storeName);
+            const request = store.delete(key);
+
+            request.onsuccess = () => resolve(true);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async count(storeName, indexName = null, query = null) {
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([storeName], 'readonly');
+            let store = transaction.objectStore(storeName);
+            
+            if (indexName) {
+                store = store.index(indexName);
+            }
+
+            const request = query ? store.count(query) : store.count();
+            
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async query(storeName, indexName, range) {
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction([storeName], 'readonly');
+            const store = transaction.objectStore(storeName);
+            const index = store.index(indexName);
+            const request = index.getAll(range);
+
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    // Méthodes spécifiques agents
+    async ajouterAgent(agent) {
+        const agentData = {
+            code: agent.code.toUpperCase(),
+            nom: agent.nom,
+            prenom: agent.prenom,
+            groupe: agent.groupe.toUpperCase(),
+            date_entree: agent.date_entree || '2025-11-01',
+            date_sortie: null,
+            statut: 'actif'
+        };
+        return this.put('agents', agentData);
+    }
+
+    async listerAgents(actifSeulement = true) {
+        const agents = await this.getAll('agents');
+        if (actifSeulement) {
+            return agents.filter(a => a.statut === 'actif');
+        }
+        return agents;
+    }
+
+    async obtenirAgent(code) {
+        return this.get('agents', code.toUpperCase());
+    }
+
+    async modifierAgent(code, updates) {
+        const agent = await this.obtenirAgent(code);
+        if (!agent) throw new Error('Agent non trouvé');
+        
+        const agentModifie = { ...agent, ...updates };
+        return this.put('agents', agentModifie);
+    }
+
+    async supprimerAgent(code) {
+        const updates = {
+            date_sortie: new Date().toISOString().split('T')[0],
+            statut: 'inactif'
+        };
+        return this.modifierAgent(code, updates);
+    }
+
+    async obtenirAgentsParGroupe(groupe) {
+        return this.query('agents', 'groupe', groupe.toUpperCase());
+    }
+
+    // Méthodes planning
+    async enregistrerShift(code_agent, date, shift, origine = 'THEORIQUE') {
+        const shiftData = {
+            code_agent: code_agent.toUpperCase(),
+            date,
+            shift: shift.toUpperCase(),
+            origine
+        };
+        return this.put('planning', shiftData);
+    }
+
+    async obtenirPlanningAgent(code_agent, mois, annee) {
+        const dateDebut = `${annee}-${mois.toString().padStart(2, '0')}-01`;
+        const dateFin = `${annee}-${mois.toString().padStart(2, '0')}-31`;
+        
+        const planning = await this.query('planning', 'agent_date', 
+            IDBKeyRange.bound([code_agent, dateDebut], [code_agent, dateFin])
+        );
+        
+        return planning;
+    }
+
+    async obtenirPlanningGroupe(groupe, mois, annee) {
+        const agents = await this.obtenirAgentsParGroupe(groupe);
+        const result = [];
+        
+        for (const agent of agents) {
+            const planning = await this.obtenirPlanningAgent(agent.code, mois, annee);
+            result.push({
+                agent,
+                planning
+            });
+        }
+        
+        return result;
+    }
+
+    async obtenirPlanningMensuel(mois, annee) {
+        const dateDebut = `${annee}-${mois.toString().padStart(2, '0')}-01`;
+        const dateFin = `${annee}-${mois.toString().padStart(2, '0')}-31`;
+        
+        return this.query('planning', 'date', 
+            IDBKeyRange.bound(dateDebut, dateFin)
+        );
+    }
+
+    async modifierShiftPonctuel(code_agent, date, nouveau_shift) {
+        return this.enregistrerShift(code_agent, date, nouveau_shift, 'MANUEL');
+    }
+
+    async echangerShifts(code_agent_a, code_agent_b, date) {
+        const shift_a = await this.get('planning', [code_agent_a, date]);
+        const shift_b = await this.get('planning', [code_agent_b, date]);
+        
+        if (shift_a && shift_b) {
+            await this.enregistrerShift(code_agent_a, date, shift_b.shift, 'ECHANGE');
+            await this.enregistrerShift(code_agent_b, date, shift_a.shift, 'ECHANGE');
+            return true;
+        }
+        return false;
+    }
+
+    async enregistrerAbsence(code_agent, date, type) {
+        return this.enregistrerShift(code_agent, date, type.toUpperCase(), 'ABSENCE');
+    }
+
+    // Méthodes statistiques
+    async obtenirStatistiquesAgent(code_agent, mois, annee) {
+        const planning = await this.obtenirPlanningAgent(code_agent, mois, annee);
+        
+        const stats = {
+            '1': 0, '2': 0, '3': 0, 'R': 0, 'C': 0, 'M': 0, 'A': 0
+        };
+        
+        planning.forEach(p => {
+            const shift = p.shift.toUpperCase();
+            if (stats[shift] !== undefined) {
+                stats[shift]++;
+            }
+        });
+        
+        const totalOperationnels = stats['1'] + stats['2'] + stats['3'];
+        
+        return {
+            stats,
+            totalOperationnels,
+            totalJours: planning.length
+        };
+    }
+
+    async obtenirStatistiquesGroupe(groupe, mois, annee) {
+        const planningGroupe = await this.obtenirPlanningGroupe(groupe, mois, annee);
+        const stats = {
+            '1': 0, '2': 0, '3': 0, 'R': 0, 'C': 0, 'M': 0, 'A': 0
+        };
+        let totalOperationnels = 0;
+        
+        for (const item of planningGroupe) {
+            const planning = item.planning;
+            planning.forEach(p => {
+                const shift = p.shift.toUpperCase();
+                if (stats[shift] !== undefined) {
+                    stats[shift]++;
+                    if (['1', '2', '3'].includes(shift)) {
+                        totalOperationnels++;
+                    }
+                }
+            });
+        }
+        
+        return {
+            stats,
+            totalOperationnels,
+            totalAgents: planningGroupe.length
+        };
+    }
+
+    // Méthodes radios
+    async ajouterRadio(id_radio, modele, statut) {
+        const radio = {
+            id_radio: id_radio.toUpperCase(),
+            modele,
+            statut: statut.toUpperCase(),
+            code_agent: null
+        };
+        return this.put('radios', radio);
+    }
+
+    async attribuerRadio(id_radio, code_agent) {
+        const radio = await this.get('radios', id_radio.toUpperCase());
+        if (!radio) throw new Error('Radio non trouvée');
+        
+        radio.statut = 'ATTRIBUÉE';
+        radio.code_agent = code_agent.toUpperCase();
+        
+        // Ajouter à l'historique
+        await this.add('historique_radio', {
+            id_radio: id_radio.toUpperCase(),
+            code_agent: code_agent.toUpperCase(),
+            date_attribution: new Date().toISOString().split('T')[0],
+            date_retour: null
+        });
+        
+        return this.put('radios', radio);
+    }
+
+    async retourRadio(id_radio) {
+        const radio = await this.get('radios', id_radio.toUpperCase());
+        if (!radio) throw new Error('Radio non trouvée');
+        
+        radio.statut = 'DISPONIBLE';
+        radio.code_agent = null;
+        
+        // Mettre à jour l'historique
+        const historiques = await this.query('historique_radio', 'id_radio', id_radio.toUpperCase());
+        const histActif = historiques.find(h => !h.date_retour);
+        if (histActif) {
+            histActif.date_retour = new Date().toISOString().split('T')[0];
+            await this.put('historique_radio', histActif);
+        }
+        
+        return this.put('radios', radio);
+    }
+
+    async obtenirStatutRadios() {
+        const radios = await this.getAll('radios');
+        const stats = {
+            total: radios.length,
+            disponible: 0,
+            attribuee: 0,
+            hs: 0,
+            reparation: 0
+        };
+        
+        const radiosDetails = [];
+        
+        for (const radio of radios) {
+            stats[radio.statut.toLowerCase()]++;
+            
+            let agent = null;
+            if (radio.code_agent) {
+                agent = await this.obtenirAgent(radio.code_agent);
+            }
+            
+            radiosDetails.push({
+                ...radio,
+                agent
+            });
+        }
+        
+        return {
+            radios: radiosDetails,
+            stats
+        };
+    }
+
+    // Méthodes codes panique
+    async ajouterCodePanique(code_agent, code_panique, poste_nom) {
+        const code = {
+            code_agent: code_agent.toUpperCase(),
+            code_panique,
+            poste_nom
+        };
+        return this.put('codes_panique', code);
+    }
+
+    async obtenirCodesPanique() {
+        const codes = await this.getAll('codes_panique');
+        const codesDetails = [];
+        
+        for (const code of codes) {
+            const agent = await this.obtenirAgent(code.code_agent);
+            codesDetails.push({
+                ...code,
+                agent
+            });
+        }
+        
+        return codesDetails;
+    }
+
+    async supprimerCodePanique(code_agent) {
+        return this.delete('codes_panique', code_agent.toUpperCase());
+    }
+
+    // Méthodes habillement
+    async ajouterHabillement(code_agent, habillement) {
+        const hab = {
+            code_agent: code_agent.toUpperCase(),
+            ...habillement
+        };
+        return this.put('habillement', hab);
+    }
+
+    async obtenirHabillement(code_agent) {
+        return this.get('habillement', code_agent.toUpperCase());
+    }
+
+    async obtenirRapportHabillement() {
+        const habillement = await this.getAll('habillement');
+        const rapport = [];
+        
+        for (const hab of habillement) {
+            const agent = await this.obtenirAgent(hab.code_agent);
+            if (agent) {
+                rapport.push({
+                    agent,
+                    habillement: hab
+                });
+            }
+        }
+        
+        return rapport;
+    }
+
+    // Méthodes avertissements
+    async ajouterAvertissement(code_agent, date, type, description) {
+        const avertissement = {
+            code_agent: code_agent.toUpperCase(),
+            date,
+            type: type.toUpperCase(),
+            description
+        };
+        return this.add('avertissements', avertissement);
+    }
+
+    async obtenirAvertissementsAgent(code_agent) {
+        return this.query('avertissements', 'code_agent', code_agent.toUpperCase());
+    }
+
+    async obtenirRapportAvertissements() {
+        const avertissements = await this.getAll('avertissements');
+        const rapport = [];
+        
+        for (const avert of avertissements) {
+            const agent = await this.obtenirAgent(avert.code_agent);
+            if (agent) {
+                rapport.push({
+                    ...avert,
+                    agent
+                });
+            }
+        }
+        
+        return rapport;
+    }
+
+    // Méthodes congés
+    async ajouterConge(code_agent, date_debut, date_fin) {
+        const conge = {
+            code_agent: code_agent.toUpperCase(),
+            date_debut,
+            date_fin,
+            date_creation: new Date().toISOString().split('T')[0]
+        };
+        return this.add('conges_periode', conge);
+    }
+
+    async supprimerConge(id) {
+        return this.delete('conges_periode', id);
+    }
+
+    async obtenirCongesAgent(code_agent) {
+        return this.query('conges_periode', 'code_agent', code_agent.toUpperCase());
+    }
+
+    async obtenirTousConges() {
+        const conges = await this.getAll('conges_periode');
+        const congesDetails = [];
+        
+        for (const conge of conges) {
+            const agent = await this.obtenirAgent(conge.code_agent);
+            if (agent) {
+                congesDetails.push({
+                    ...conge,
+                    agent
+                });
+            }
+        }
+        
+        return congesDetails;
+    }
+
+    // Méthodes jours fériés
+    async ajouterJourFerie(date, description) {
+        const ferie = {
+            date,
+            description
+        };
+        return this.put('jours_feries', ferie);
+    }
+
+    async supprimerJourFerie(date) {
+        return this.delete('jours_feries', date);
+    }
+
+    async obtenirJoursFeries(annee = null) {
+        const feries = await this.getAll('jours_feries');
+        
+        if (annee) {
+            return feries.filter(f => f.date.startsWith(annee));
+        }
+        
+        return feries;
+    }
+
+    async estJourFerie(date) {
+        const ferie = await this.get('jours_feries', date);
+        return ferie !== undefined;
+    }
+
+    // Export/Import
+    async exporterDonnees() {
+        const donnees = {
+            agents: await this.getAll('agents'),
+            planning: await this.getAll('planning'),
+            jours_feries: await this.getAll('jours_feries'),
+            codes_panique: await this.getAll('codes_panique'),
+            radios: await this.getAll('radios'),
+            habillement: await this.getAll('habillement'),
+            avertissements: await this.getAll('avertissements'),
+            conges_periode: await this.getAll('conges_periode')
+        };
+        
+        return JSON.stringify(donnees);
+    }
+
+    async importerDonnees(donnees) {
+        const data = JSON.parse(donnees);
+        
+        for (const store in data) {
+            if (this.db.objectStoreNames.contains(store)) {
+                // Vider le store
+                const transaction = this.db.transaction([store], 'readwrite');
+                const objectStore = transaction.objectStore(store);
+                await objectStore.clear();
+                
+                // Ajouter les données
+                for (const item of data[store]) {
+                    await this.put(store, item);
+                }
+            }
+        }
+        
+        return true;
+    }
+
+    // Statistiques globales
+    async obtenirStatsGlobales() {
+        const agentsActifs = await this.listerAgents(true);
+        const agentsParGroupe = {};
+        
+        agentsActifs.forEach(agent => {
+            const groupe = agent.groupe;
+            agentsParGroupe[groupe] = (agentsParGroupe[groupe] || 0) + 1;
+        });
+        
+        const radios = await this.obtenirStatutRadios();
+        const conges = await this.obtenirTousConges();
+        const avertissements = await this.obtenirRapportAvertissements();
+        
+        return {
+            totalAgents: agentsActifs.length,
+            agentsParGroupe,
+            totalRadios: radios.stats.total,
+            radiosDisponibles: radios.stats.disponible,
+            totalConges: conges.length,
+            totalAvertissements: avertissements.length
+        };
+    }
+}
+
+// Instance globale
+const sgaDB = new SGA_Database();
