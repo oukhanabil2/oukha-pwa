@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SGA - Système Gestion Agents</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="icons/icon-72x72.png">
+    <meta name="theme-color" content="#2c3e50">
+</head>
+<body>
+    <!-- En-tête -->
+    <header class="app-header">
+        <div class="header-content">
+            <h1>📋 SYSTEME DE GESTION DES AGENTS</h1>
+            <p class="subtitle" id="pageSubtitle">Menu Principal</p>
+        </div>
+        <div class="header-actions">
+            <button id="backBtn" class="btn-icon" title="Retour" style="display:none">←</button>
+            <button id="syncBtn" class="btn-icon" title="Synchroniser">🔄</button>
+            <button id="themeBtn" class="btn-icon" title="Changer thème">🌙</button>
+            <button id="installBtn" class="btn-icon" title="Installer l'app" style="display:none">📱</button>
+        </div>
+    </header>
+
+    <!-- Navigation horizontale (pour mobile) -->
+    <nav class="horizontal-nav" id="topNav">
+        <button class="nav-tab active" data-page="menu">🏠 Accueil</button>
+        <button class="nav-tab" data-page="agents">👥 Agents</button>
+        <button class="nav-tab" data-page="planning">📅 Planning</button>
+        <button class="nav-tab" data-page="stats">📊 Stats</button>
+        <button class="nav-tab" data-page="radios">📻 Radios</button>
+        <button class="nav-tab" data-page="panique">🚨 Panique</button>
+        <button class="nav-tab" data-page="habillement">👕 Habillement</button>
+        <button class="nav-tab" data-page="avertissements">⚠️ Avertissements</button>
+        <button class="nav-tab" data-page="conges">🏖️ Congés</button>
+        <button class="nav-tab" data-page="outils">🛠️ Outils</button>
+    </nav>
+
+    <!-- Contenu principal -->
+    <main class="main-content">
+        <!-- Page d'accueil -->
+        <div id="pageMenu" class="page active">
+            <div class="menu-grid">
+                <!-- Les 10 boutons principaux comme dans Android.py -->
+            </div>
+        </div>
+
+        <!-- Pages spécifiques -->
+        <div id="pageAgents" class="page">
+            <div class="page-content" id="agentsContent"></div>
+        </div>
+        
+        <div id="pagePlanning" class="page">
+            <div class="page-content" id="planningContent"></div>
+        </div>
+        
+        <div id="pageStats" class="page">
+            <div class="page-content" id="statsContent"></div>
+        </div>
+        
+        <div id="pageRadios" class="page">
+            <div class="page-content" id="radiosContent"></div>
+        </div>
+        
+        <div id="pagePanique" class="page">
+            <div class="page-content" id="paniqueContent"></div>
+        </div>
+        
+        <div id="pageHabillement" class="page">
+            <div class="page-content" id="habillementContent"></div>
+        </div>
+        
+        <div id="pageAvertissements" class="page">
+            <div class="page-content" id="avertissementsContent"></div>
+        </div>
+        
+        <div id="pageConges" class="page">
+            <div class="page-content" id="congesContent"></div>
+        </div>
+        
+        <div id="pageOutils" class="page">
+            <div class="page-content" id="outilsContent"></div>
+        </div>
+    </main>
+
+    <!-- Footer avec info -->
+    <footer class="app-footer">
+        <div class="footer-info">
+            <span id="dbInfo">Base: Chargement...</span>
+            <span id="syncStatus">⚡ En ligne</span>
+        </div>
+        <div class="footer-version">
+            SGA PWA v1.0 | © 2024
+        </div>
+    </footer>
+
+    <!-- Modals et popups -->
+    <div id="modalOverlay" class="modal-overlay"></div>
+    <div id="modalContainer" class="modal-container"></div>
+
+    <!-- Toast notifications -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Scripts -->
+    <script src="database.js"></script>
+    <script src="planning-engine.js"></script>
+    <script src="export-utils.js"></script>
+    <script src="app.js"></script>
+
+    <!-- Initialisation -->
+    <script>
+        // Initialisation de l'application
+        document.addEventListener('DOMContentLoaded', () => {
+            window.sgaApp = new SGA_App();
+        });
+
+        // Service Worker pour PWA
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('service-worker.js')
+                .then(reg => console.log('Service Worker enregistré'))
+                .catch(err => console.log('Erreur SW:', err));
+        }
+        <!-- Dans index.html -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+        // Gestion installation PWA
+        let deferredPrompt;
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            document.getElementById('installBtn').style.display = 'block';
+        });
+
+        document.getElementById('installBtn')?.addEventListener('click', async () => {
+            if (deferredPrompt) {
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                if (outcome === 'accepted') {
+                    console.log('PWA installée');
+                }
+                deferredPrompt = null;
+                document.getElementById('installBtn').style.display = 'none';
+            }
+        });
+        
+    </script>
+</body>
+</html>
