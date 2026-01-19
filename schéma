@@ -1,0 +1,15 @@
+oukha-pwa/
+├── index.html
+├── manifest.json
+├── service-worker.js
+├── styles.css
+├── app.js
+├── database.js
+├── planning-engine.js      # Moteur de calcul des cycles A-E
+├── export-utils.js         # Export Excel/PDF
+├── data/
+│   └── agents-init.json
+└── icons/
+    ├── icon-72x72.png
+    ├── icon-192x192.png
+    └── icon-512x512.png
