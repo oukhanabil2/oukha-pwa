@@ -144,7 +144,49 @@
                 document.getElementById('installBtn').style.display = 'none';
             }
         });
+        <!-- Debug Panel (à retirer en production) -->
+<div id="debugPanel" style="position:fixed; bottom:10px; right:10px; background:red; color:white; padding:10px; z-index:9999; display:none;">
+  <button onclick="checkDB()">Check DB</button>
+  <button onclick="clearAll()">Clear All</button>
+  <div id="debugInfo"></div>
+</div>
+
+<script>
+// Afficher le panel debug
+setTimeout(() => {
+  document.getElementById('debugPanel').style.display = 'block';
+}, 2000);
+
+async function checkDB() {
+  const info = document.getElementById('debugInfo');
+  try {
+    info.innerHTML = 'Checking...';
+    
+    // Vérifier l'instance
+    info.innerHTML += `<br>✅ sgaDB existe: ${window.sgaDB ? 'OUI' : 'NON'}`;
+    
+    // Vérifier la connexion
+    const stats = await sgaDB.obtenirStatsGlobales();
+    info.innerHTML += `<br>✅ Stats: ${JSON.stringify(stats)}`;
+    
+    // Vérifier les agents
+    const agents = await sgaDB.listerAgents();
+    info.innerHTML += `<br>✅ Agents: ${agents.length}`;
+    
+  } catch (error) {
+    info.innerHTML += `<br>❌ Error: ${error.message}`;
+  }
+}
+
+async function clearAll() {
+  if (confirm('Tout effacer ?')) {
+    await sgaDB.reinitialiser();
+    localStorage.clear();
+    location.reload();
+  }
+}
+</script>
         
-    </script>
+    
 </body>
 </html>
