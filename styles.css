@@ -541,3 +541,68 @@ body {
 ::-webkit-scrollbar-thumb:hover {
     background: #2980b9;
 }
+/* Styles pour les modals */
+.modal-content {
+    background: var(--primary-color);
+    border-radius: var(--border-radius);
+    padding: 20px;
+    max-width: 95%;
+    max-height: 90vh;
+    overflow-y: auto;
+    width: 500px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+}
+
+@media (max-width: 768px) {
+    .modal-content {
+        width: 95%;
+        padding: 15px;
+    }
+}
+
+/* Styles pour le panneau de debug */
+#debugPanel {
+    position: fixed;
+    bottom: 10px;
+    right: 10px;
+    background: #e74c3c;
+    color: white;
+    padding: 10px;
+    border-radius: 5px;
+    z-index: 9999;
+    font-size: 12px;
+}
+
+#debugPanel button {
+    background: white;
+    color: #e74c3c;
+    border: none;
+    padding: 5px 10px;
+    margin: 2px;
+    border-radius: 3px;
+    cursor: pointer;
+}
+
+/* Amélioration du tableau */
+.table-container {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+/* Amélioration des badges */
+.badge {
+    min-width: 50px;
+    text-align: center;
+}
+
+/* Amélioration responsive */
+@media (max-width: 480px) {
+    .app-header h1 {
+        font-size: 0.9rem;
+    }
+    
+    .nav-tab {
+        padding: 8px 5px;
+        font-size: 0.7rem;
+    }
+}
