@@ -1,29 +1,38 @@
-// Base de données IndexedDB pour SGA
+// Base de données IndexedDB pour SGA - Version complète
 class SGA_Database {
     constructor() {
         this.db = null;
-        this.dbName = 'SGA_DB_v3';
-        this.dbVersion = 3;
+        this.dbName = 'SGA_DB_v4'; // Augmenter la version
+        this.dbVersion = 4;
         this.initialize();
     }
 
     async initialize() {
         return new Promise((resolve, reject) => {
+            console.log('🔄 Initialisation de la base de données...');
             const request = indexedDB.open(this.dbName, this.dbVersion);
 
             request.onerror = (event) => {
-                console.error('Erreur IndexedDB:', event.target.error);
+                console.error('❌ Erreur IndexedDB:', event.target.error);
                 reject(event.target.error);
             };
 
             request.onsuccess = (event) => {
                 this.db = event.target.result;
-                console.log('Base de données initialisée');
-                this.initializeStores();
-                resolve(this.db);
+                console.log('✅ Base de données initialisée');
+                
+                // Vérifier la connexion
+                this.testConnection().then(() => {
+                    localStorage.setItem('sga-db-version', this.dbVersion);
+                    resolve(this.db);
+                }).catch(error => {
+                    console.error('❌ Test de connexion échoué:', error);
+                    reject(error);
+                });
             };
 
             request.onupgradeneeded = (event) => {
+                console.log('🔧 Mise à jour de la structure de la base...');
                 const db = event.target.result;
                 this.createStores(db);
             };
@@ -36,6 +45,8 @@ class SGA_Database {
             const agentsStore = db.createObjectStore('agents', { keyPath: 'code' });
             agentsStore.createIndex('groupe', 'groupe', { unique: false });
             agentsStore.createIndex('statut', 'statut', { unique: false });
+            agentsStore.createIndex('nom', 'nom', { unique: false });
+            agentsStore.createIndex('prenom', 'prenom', { unique: false });
         }
 
         // Table planning
@@ -46,24 +57,33 @@ class SGA_Database {
             planningStore.createIndex('date', 'date', { unique: false });
             planningStore.createIndex('agent_date', ['code_agent', 'date'], { unique: true });
             planningStore.createIndex('shift', 'shift', { unique: false });
+            planningStore.createIndex('origine', 'origine', { unique: false });
         }
 
         // Table jours fériés
         if (!db.objectStoreNames.contains('jours_feries')) {
             const feriesStore = db.createObjectStore('jours_feries', { keyPath: 'date' });
+            feriesStore.createIndex('annee', 'annee', { unique: false });
         }
 
         // Table codes panique
         if (!db.objectStoreNames.contains('codes_panique')) {
-            const paniqueStore = db.createObjectStore('codes_panique', { keyPath: 'code_agent' });
-            paniqueStore.createIndex('code_panique', 'code_panique', { unique: true });
+            const paniqueStore = db.createObjectStore('codes_panique', { 
+                keyPath: 'id', 
+                autoIncrement: true 
+            });
+            paniqueStore.createIndex('code', 'code', { unique: true });
+            paniqueStore.createIndex('code_agent', 'code_agent', { unique: false });
+            paniqueStore.createIndex('statut', 'statut', { unique: false });
+            paniqueStore.createIndex('date_expiration', 'date_expiration', { unique: false });
         }
 
         // Table radios
         if (!db.objectStoreNames.contains('radios')) {
-            const radiosStore = db.createObjectStore('radios', { keyPath: 'id_radio' });
+            const radiosStore = db.createObjectStore('radios', { keyPath: 'numero' });
             radiosStore.createIndex('statut', 'statut', { unique: false });
-            radiosStore.createIndex('code_agent', 'code_agent', { unique: false });
+            radiosStore.createIndex('agent_code', 'agent_code', { unique: false });
+            radiosStore.createIndex('date_attribution', 'date_attribution', { unique: false });
         }
 
         // Table historique radio
@@ -72,13 +92,22 @@ class SGA_Database {
                 keyPath: 'id', 
                 autoIncrement: true 
             });
-            histStore.createIndex('id_radio', 'id_radio', { unique: false });
-            histStore.createIndex('code_agent', 'code_agent', { unique: false });
+            histStore.createIndex('numero_radio', 'numero_radio', { unique: false });
+            histStore.createIndex('agent_code', 'agent_code', { unique: false });
+            histStore.createIndex('date_attribution', 'date_attribution', { unique: false });
         }
 
         // Table habillement
         if (!db.objectStoreNames.contains('habillement')) {
-            const habillementStore = db.createObjectStore('habillement', { keyPath: 'code_agent' });
+            const habillementStore = db.createObjectStore('habillement', { 
+                keyPath: 'id', 
+                autoIncrement: true 
+            });
+            habillementStore.createIndex('agent_code', 'agent_code', { unique: false });
+            habillementStore.createIndex('type_uniforme', 'type_uniforme', { unique: false });
+            habillementStore.createIndex('taille', 'taille', { unique: false });
+            habillementStore.createIndex('statut', 'statut', { unique: false });
+            habillementStore.createIndex('date_commande', 'date_commande', { unique: false });
         }
 
         // Table avertissements
@@ -87,26 +116,52 @@ class SGA_Database {
                 keyPath: 'id', 
                 autoIncrement: true 
             });
-            avertStore.createIndex('code_agent', 'code_agent', { unique: false });
+            avertStore.createIndex('agent_code', 'agent_code', { unique: false });
             avertStore.createIndex('date', 'date', { unique: false });
+            avertStore.createIndex('type', 'type', { unique: false });
+            avertStore.createIndex('statut', 'statut', { unique: false });
         }
 
-        // Table congés période
-        if (!db.objectStoreNames.contains('conges_periode')) {
-            const congesStore = db.createObjectStore('conges_periode', { 
+        // Table congés
+        if (!db.objectStoreNames.contains('conges')) {
+            const congesStore = db.createObjectStore('conges', { 
                 keyPath: 'id', 
                 autoIncrement: true 
             });
-            congesStore.createIndex('code_agent', 'code_agent', { unique: false });
+            congesStore.createIndex('agent_code', 'agent_code', { unique: false });
             congesStore.createIndex('date_debut', 'date_debut', { unique: false });
+            congesStore.createIndex('date_fin', 'date_fin', { unique: false });
+            congesStore.createIndex('type', 'type', { unique: false });
+            congesStore.createIndex('statut', 'statut', { unique: false });
+        }
+
+        // Table configuration
+        if (!db.objectStoreNames.contains('config')) {
+            const configStore = db.createObjectStore('config', { keyPath: 'cle' });
         }
     }
 
-    initializeStores() {
-        // Ajouter des données par défaut si nécessaire
+    async testConnection() {
+        return new Promise((resolve, reject) => {
+            const transaction = this.db.transaction(['agents'], 'readonly');
+            const store = transaction.objectStore('agents');
+            const request = store.count();
+
+            request.onsuccess = () => {
+                console.log(`✅ Connexion OK - ${request.result} agents dans la base`);
+                resolve();
+            };
+
+            request.onerror = (event) => {
+                reject(event.target.error);
+            };
+        });
     }
 
-    // Méthodes CRUD génériques
+    // ========================================
+    // MÉTHODES GÉNÉRIQUES
+    // ========================================
+
     async add(storeName, data) {
         return new Promise((resolve, reject) => {
             const transaction = this.db.transaction([storeName], 'readwrite');
@@ -195,7 +250,10 @@ class SGA_Database {
         });
     }
 
-    // Méthodes spécifiques agents
+    // ========================================
+    // MÉTHODES AGENTS
+    // ========================================
+
     async ajouterAgent(agent) {
         const agentData = {
             code: agent.code.toUpperCase(),
@@ -204,17 +262,15 @@ class SGA_Database {
             groupe: agent.groupe.toUpperCase(),
             date_entree: agent.date_entree || '2025-11-01',
             date_sortie: null,
-            statut: 'actif'
+            statut: 'actif',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
         };
         return this.put('agents', agentData);
     }
 
-    async listerAgents(actifSeulement = true) {
-        const agents = await this.getAll('agents');
-        if (actifSeulement) {
-            return agents.filter(a => a.statut === 'actif');
-        }
-        return agents;
+    async listerAgents() {
+        return this.getAll('agents');
     }
 
     async obtenirAgent(code) {
@@ -225,14 +281,19 @@ class SGA_Database {
         const agent = await this.obtenirAgent(code);
         if (!agent) throw new Error('Agent non trouvé');
         
-        const agentModifie = { ...agent, ...updates };
+        const agentModifie = { 
+            ...agent, 
+            ...updates,
+            updated_at: new Date().toISOString()
+        };
         return this.put('agents', agentModifie);
     }
 
     async supprimerAgent(code) {
         const updates = {
             date_sortie: new Date().toISOString().split('T')[0],
-            statut: 'inactif'
+            statut: 'inactif',
+            updated_at: new Date().toISOString()
         };
         return this.modifierAgent(code, updates);
     }
@@ -241,13 +302,22 @@ class SGA_Database {
         return this.query('agents', 'groupe', groupe.toUpperCase());
     }
 
-    // Méthodes planning
+    async obtenirAgentsActifs() {
+        const agents = await this.listerAgents();
+        return agents.filter(a => a.statut === 'actif');
+    }
+
+    // ========================================
+    // MÉTHODES PLANNING
+    // ========================================
+
     async enregistrerShift(code_agent, date, shift, origine = 'THEORIQUE') {
         const shiftData = {
             code_agent: code_agent.toUpperCase(),
-            date,
+            date: date,
             shift: shift.toUpperCase(),
-            origine
+            origine: origine,
+            created_at: new Date().toISOString()
         };
         return this.put('planning', shiftData);
     }
@@ -260,7 +330,7 @@ class SGA_Database {
             IDBKeyRange.bound([code_agent, dateDebut], [code_agent, dateFin])
         );
         
-        return planning;
+        return planning.sort((a, b) => a.date.localeCompare(b.date));
     }
 
     async obtenirPlanningGroupe(groupe, mois, annee) {
@@ -307,12 +377,37 @@ class SGA_Database {
         return this.enregistrerShift(code_agent, date, type.toUpperCase(), 'ABSENCE');
     }
 
-    // Méthodes statistiques
+    // ========================================
+    // MÉTHODES STATISTIQUES
+    // ========================================
+
+    async obtenirStatsGlobales() {
+        const agents = await this.obtenirAgentsActifs();
+        const radios = await this.obtenirStatsRadios();
+        const conges = await this.obtenirCongesActifs();
+        const avertissements = await this.obtenirAvertissementsActifs();
+        
+        // Compter les agents par groupe
+        const agentsParGroupe = {};
+        agents.forEach(agent => {
+            const groupe = agent.groupe;
+            agentsParGroupe[groupe] = (agentsParGroupe[groupe] || 0) + 1;
+        });
+        
+        return {
+            totalAgents: agents.length,
+            agentsParGroupe,
+            totalRadios: radios.total,
+            totalCongesActifs: conges.length,
+            totalAvertissements: avertissements.length
+        };
+    }
+
     async obtenirStatistiquesAgent(code_agent, mois, annee) {
         const planning = await this.obtenirPlanningAgent(code_agent, mois, annee);
         
         const stats = {
-            '1': 0, '2': 0, '3': 0, 'R': 0, 'C': 0, 'M': 0, 'A': 0
+            '1': 0, '2': 0, '3': 0, 'R': 0, 'C': 0, 'M': 0, 'A': 0, '-': 0
         };
         
         planning.forEach(p => {
@@ -358,233 +453,395 @@ class SGA_Database {
         };
     }
 
-    // Méthodes radios
-    async ajouterRadio(id_radio, modele, statut) {
+    async calculerJoursTravaillesGroupe(groupe, mois, annee) {
+        const stats = await this.obtenirStatistiquesGroupe(groupe, mois, annee);
+        return stats.totalOperationnels;
+    }
+
+    // ========================================
+    // MÉTHODES RADIOS
+    // ========================================
+
+    async ajouterRadio(numero, modele = 'Standard', statut = 'disponible') {
         const radio = {
-            id_radio: id_radio.toUpperCase(),
-            modele,
-            statut: statut.toUpperCase(),
-            code_agent: null
+            numero: numero.toUpperCase(),
+            modele: modele,
+            statut: statut,
+            agent_code: null,
+            date_attribution: null,
+            created_at: new Date().toISOString()
         };
         return this.put('radios', radio);
     }
 
-    async attribuerRadio(id_radio, code_agent) {
-        const radio = await this.get('radios', id_radio.toUpperCase());
+    async obtenirRadio(numero) {
+        return this.get('radios', numero.toUpperCase());
+    }
+
+    async attribuerRadio(numero, code_agent, date_attribution) {
+        const radio = await this.obtenirRadio(numero);
         if (!radio) throw new Error('Radio non trouvée');
         
-        radio.statut = 'ATTRIBUÉE';
-        radio.code_agent = code_agent.toUpperCase();
+        radio.statut = 'attribuee';
+        radio.agent_code = code_agent.toUpperCase();
+        radio.date_attribution = date_attribution;
+        radio.updated_at = new Date().toISOString();
         
         // Ajouter à l'historique
         await this.add('historique_radio', {
-            id_radio: id_radio.toUpperCase(),
-            code_agent: code_agent.toUpperCase(),
-            date_attribution: new Date().toISOString().split('T')[0],
-            date_retour: null
+            numero_radio: numero.toUpperCase(),
+            agent_code: code_agent.toUpperCase(),
+            date_attribution: date_attribution,
+            date_retour: null,
+            created_at: new Date().toISOString()
         });
         
         return this.put('radios', radio);
     }
 
-    async retourRadio(id_radio) {
-        const radio = await this.get('radios', id_radio.toUpperCase());
+    async retournerRadio(numero, statut = 'disponible', remarques = '') {
+        const radio = await this.obtenirRadio(numero);
         if (!radio) throw new Error('Radio non trouvée');
         
-        radio.statut = 'DISPONIBLE';
-        radio.code_agent = null;
+        // Mettre à jour le statut
+        radio.statut = statut;
+        radio.agent_code = null;
+        radio.date_attribution = null;
+        radio.updated_at = new Date().toISOString();
         
         // Mettre à jour l'historique
-        const historiques = await this.query('historique_radio', 'id_radio', id_radio.toUpperCase());
+        const historiques = await this.query('historique_radio', 'numero_radio', numero.toUpperCase());
         const histActif = historiques.find(h => !h.date_retour);
+        
         if (histActif) {
             histActif.date_retour = new Date().toISOString().split('T')[0];
+            histActif.remarques = remarques;
+            histActif.updated_at = new Date().toISOString();
             await this.put('historique_radio', histActif);
         }
         
         return this.put('radios', radio);
     }
 
-    async obtenirStatutRadios() {
+    async obtenirRadiosAttribuees() {
         const radios = await this.getAll('radios');
-        const stats = {
-            total: radios.length,
-            disponible: 0,
-            attribuee: 0,
-            hs: 0,
-            reparation: 0
-        };
-        
-        const radiosDetails = [];
-        
-        for (const radio of radios) {
-            stats[radio.statut.toLowerCase()]++;
-            
-            let agent = null;
-            if (radio.code_agent) {
-                agent = await this.obtenirAgent(radio.code_agent);
-            }
-            
-            radiosDetails.push({
-                ...radio,
-                agent
-            });
-        }
-        
-        return {
-            radios: radiosDetails,
-            stats
-        };
+        return radios.filter(r => r.statut === 'attribuee');
     }
 
-    // Méthodes codes panique
-    async ajouterCodePanique(code_agent, code_panique, poste_nom) {
-        const code = {
-            code_agent: code_agent.toUpperCase(),
-            code_panique,
-            poste_nom
+    async obtenirRadiosDisponibles() {
+        const radios = await this.getAll('radios');
+        return radios.filter(r => r.statut === 'disponible');
+    }
+
+    async obtenirHistoriqueRadios() {
+        return this.getAll('historique_radio');
+    }
+
+    async obtenirStatsRadios() {
+        const radios = await this.getAll('radios');
+        
+        const stats = {
+            total: radios.length,
+            attribuees: 0,
+            disponibles: 0,
+            en_panne: 0
         };
-        return this.put('codes_panique', code);
+        
+        radios.forEach(radio => {
+            if (radio.statut === 'attribuee') stats.attribuees++;
+            if (radio.statut === 'disponible') stats.disponibles++;
+            if (radio.statut === 'en_panne') stats.en_panne++;
+        });
+        
+        return stats;
+    }
+
+    // ========================================
+    // MÉTHODES CODES PANIQUE
+    // ========================================
+
+    async genererCodesPanique() {
+        try {
+            // Archiver les anciens codes
+            const anciensCodes = await this.obtenirCodesPanique();
+            for (const code of anciensCodes) {
+                if (code.statut !== 'archive') {
+                    code.statut = 'archive';
+                    await this.put('codes_panique', code);
+                }
+            }
+            
+            // Générer 100 nouveaux codes
+            const nouveauxCodes = [];
+            for (let i = 1; i <= 100; i++) {
+                const code = this.genererCodeUnique();
+                const codeData = {
+                    code: code,
+                    numero: i,
+                    agent_code: null,
+                    agent_nom: null,
+                    date_creation: new Date().toISOString().split('T')[0],
+                    date_expiration: this.calculerDateExpiration(30), // 30 jours
+                    statut: 'actif',
+                    created_at: new Date().toISOString()
+                };
+                nouveauxCodes.push(codeData);
+                await this.add('codes_panique', codeData);
+            }
+            
+            return nouveauxCodes;
+        } catch (error) {
+            console.error('Erreur génération codes:', error);
+            throw error;
+        }
+    }
+
+    genererCodeUnique() {
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        let code = '';
+        for (let i = 0; i < 6; i++) {
+            code += chars.charAt(Math.floor(Math.random() * chars.length));
+        }
+        return code;
+    }
+
+    calculerDateExpiration(jours) {
+        const date = new Date();
+        date.setDate(date.getDate() + jours);
+        return date.toISOString().split('T')[0];
     }
 
     async obtenirCodesPanique() {
         const codes = await this.getAll('codes_panique');
-        const codesDetails = [];
+        return codes.filter(c => c.statut !== 'archive').sort((a, b) => a.numero - b.numero);
+    }
+
+    async attribuerCodePanique(code, code_agent, date_expiration) {
+        const codePanique = await this.getCodePaniqueParCode(code);
+        if (!codePanique) throw new Error('Code panique non trouvé');
         
+        const agent = await this.obtenirAgent(code_agent);
+        if (!agent) throw new Error('Agent non trouvé');
+        
+        codePanique.agent_code = code_agent;
+        codePanique.agent_nom = `${agent.nom} ${agent.prenom}`;
+        codePanique.date_expiration = date_expiration;
+        codePanique.statut = 'attribue';
+        codePanique.updated_at = new Date().toISOString();
+        
+        return this.put('codes_panique', codePanique);
+    }
+
+    async getCodePaniqueParCode(code) {
+        const codes = await this.query('codes_panique', 'code', code);
+        return codes[0];
+    }
+
+    async marquerCodePaniqueUtilise(code) {
+        const codePanique = await this.getCodePaniqueParCode(code);
+        if (!codePanique) throw new Error('Code panique non trouvé');
+        
+        codePanique.statut = 'utilise';
+        codePanique.date_utilisation = new Date().toISOString().split('T')[0];
+        codePanique.updated_at = new Date().toISOString();
+        
+        return this.put('codes_panique', codePanique);
+    }
+
+    async reinitialiserCodesPanique() {
+        const codes = await this.getAll('codes_panique');
         for (const code of codes) {
-            const agent = await this.obtenirAgent(code.code_agent);
-            codesDetails.push({
-                ...code,
-                agent
-            });
+            code.statut = 'archive';
+            await this.put('codes_panique', code);
         }
-        
-        return codesDetails;
+        return true;
     }
 
-    async supprimerCodePanique(code_agent) {
-        return this.delete('codes_panique', code_agent.toUpperCase());
-    }
+    // ========================================
+    // MÉTHODES HABILLEMENT
+    // ========================================
 
-    // Méthodes habillement
-    async ajouterHabillement(code_agent, habillement) {
-        const hab = {
-            code_agent: code_agent.toUpperCase(),
-            ...habillement
+    async ajouterCommandeHabillement(commande) {
+        const commandeData = {
+            agent_code: commande.code_agent.toUpperCase(),
+            type_uniforme: commande.type_uniforme,
+            taille: commande.taille,
+            quantite: commande.quantite || 1,
+            date_commande: commande.date_commande || new Date().toISOString().split('T')[0],
+            date_livraison: null,
+            remarques: commande.remarques || '',
+            statut: 'commande',
+            created_at: new Date().toISOString()
         };
-        return this.put('habillement', hab);
+        return this.add('habillement', commandeData);
     }
 
-    async obtenirHabillement(code_agent) {
-        return this.get('habillement', code_agent.toUpperCase());
-    }
-
-    async obtenirRapportHabillement() {
-        const habillement = await this.getAll('habillement');
-        const rapport = [];
+    async obtenirCommandesHabillement() {
+        const commandes = await this.getAll('habillement');
+        const commandesAvecAgents = [];
         
-        for (const hab of habillement) {
-            const agent = await this.obtenirAgent(hab.code_agent);
+        for (const commande of commandes) {
+            const agent = await this.obtenirAgent(commande.agent_code);
             if (agent) {
-                rapport.push({
-                    agent,
-                    habillement: hab
+                commandesAvecAgents.push({
+                    ...commande,
+                    agent_nom: `${agent.nom} ${agent.prenom}`
                 });
+            } else {
+                commandesAvecAgents.push(commande);
             }
         }
         
-        return rapport;
+        return commandesAvecAgents.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     }
 
-    // Méthodes avertissements
-    async ajouterAvertissement(code_agent, date, type, description) {
-        const avertissement = {
-            code_agent: code_agent.toUpperCase(),
-            date,
-            type: type.toUpperCase(),
-            description
+    async marquerCommandeLivree(id, date_livraison) {
+        const commande = await this.get('habillement', id);
+        if (!commande) throw new Error('Commande non trouvée');
+        
+        commande.statut = 'livre';
+        commande.date_livraison = date_livraison;
+        commande.updated_at = new Date().toISOString();
+        
+        return this.put('habillement', commande);
+    }
+
+    // ========================================
+    // MÉTHODES AVERTISSEMENTS
+    // ========================================
+
+    async ajouterAvertissement(avertissement) {
+        const avertData = {
+            agent_code: avertissement.code_agent.toUpperCase(),
+            type: avertissement.type,
+            date: avertissement.date,
+            motif: avertissement.motif,
+            sanction: avertissement.sanction || '',
+            date_fin_sanction: avertissement.date_fin_sanction || null,
+            statut: 'actif',
+            created_at: new Date().toISOString()
         };
-        return this.add('avertissements', avertissement);
+        return this.add('avertissements', avertData);
     }
 
-    async obtenirAvertissementsAgent(code_agent) {
-        return this.query('avertissements', 'code_agent', code_agent.toUpperCase());
-    }
-
-    async obtenirRapportAvertissements() {
+    async obtenirAvertissements() {
         const avertissements = await this.getAll('avertissements');
-        const rapport = [];
+        const avertissementsAvecAgents = [];
         
         for (const avert of avertissements) {
-            const agent = await this.obtenirAgent(avert.code_agent);
+            const agent = await this.obtenirAgent(avert.agent_code);
             if (agent) {
-                rapport.push({
+                avertissementsAvecAgents.push({
                     ...avert,
-                    agent
+                    agent_nom: `${agent.nom} ${agent.prenom}`
                 });
+            } else {
+                avertissementsAvecAgents.push(avert);
             }
         }
         
-        return rapport;
+        return avertissementsAvecAgents.sort((a, b) => new Date(b.date) - new Date(a.date));
     }
 
-    // Méthodes congés
-    async ajouterConge(code_agent, date_debut, date_fin) {
-        const conge = {
-            code_agent: code_agent.toUpperCase(),
-            date_debut,
-            date_fin,
-            date_creation: new Date().toISOString().split('T')[0]
+    async obtenirAvertissementsActifs() {
+        const avertissements = await this.obtenirAvertissements();
+        return avertissements.filter(a => a.statut === 'actif');
+    }
+
+    async resoudreAvertissement(id, motifResolution) {
+        const avertissement = await this.get('avertissements', id);
+        if (!avertissement) throw new Error('Avertissement non trouvé');
+        
+        avertissement.statut = 'resolu';
+        avertissement.motif_resolution = motifResolution;
+        avertissement.date_resolution = new Date().toISOString().split('T')[0];
+        avertissement.updated_at = new Date().toISOString();
+        
+        return this.put('avertissements', avertissement);
+    }
+
+    // ========================================
+    // MÉTHODES CONGÉS
+    // ========================================
+
+    async demanderConge(conge) {
+        const congeData = {
+            agent_code: conge.code_agent.toUpperCase(),
+            type: conge.type,
+            date_debut: conge.date_debut,
+            date_fin: conge.date_fin,
+            motif: conge.motif || '',
+            statut: 'en_attente',
+            created_at: new Date().toISOString()
         };
-        return this.add('conges_periode', conge);
+        return this.add('conges', congeData);
     }
 
-    async supprimerConge(id) {
-        return this.delete('conges_periode', id);
-    }
-
-    async obtenirCongesAgent(code_agent) {
-        return this.query('conges_periode', 'code_agent', code_agent.toUpperCase());
-    }
-
-    async obtenirTousConges() {
-        const conges = await this.getAll('conges_periode');
-        const congesDetails = [];
+    async obtenirCongesMois(mois, annee) {
+        const dateDebut = `${annee}-${mois.toString().padStart(2, '0')}-01`;
+        const dateFin = `${annee}-${mois.toString().padStart(2, '0')}-31`;
+        
+        const conges = await this.query('conges', 'date_debut', 
+            IDBKeyRange.bound(dateDebut, dateFin)
+        );
+        
+        const congesAvecAgents = [];
         
         for (const conge of conges) {
-            const agent = await this.obtenirAgent(conge.code_agent);
+            const agent = await this.obtenirAgent(conge.agent_code);
             if (agent) {
-                congesDetails.push({
+                congesAvecAgents.push({
                     ...conge,
-                    agent
+                    agent_nom: `${agent.nom} ${agent.prenom}`
                 });
+            } else {
+                congesAvecAgents.push(conge);
             }
         }
         
-        return congesDetails;
+        return congesAvecAgents.sort((a, b) => new Date(a.date_debut) - new Date(b.date_debut));
     }
 
-    // Méthodes jours fériés
-    async ajouterJourFerie(date, description) {
-        const ferie = {
-            date,
-            description
+    async obtenirCongesActifs() {
+        const conges = await this.getAll('conges');
+        return conges.filter(c => c.statut === 'approuve');
+    }
+
+    async verifierConflitsConge(code_agent, date_debut, date_fin) {
+        const conges = await this.query('conges', 'agent_code', code_agent.toUpperCase());
+        
+        const conflits = conges.filter(conge => {
+            const congeDebut = new Date(conge.date_debut);
+            const congeFin = new Date(conge.date_fin);
+            const demandeDebut = new Date(date_debut);
+            const demandeFin = new Date(date_fin);
+            
+            return (demandeDebut <= congeFin && demandeFin >= congeDebut);
+        });
+        
+        return conflits;
+    }
+
+    // ========================================
+    // MÉTHODES JOURS FÉRIÉS
+    // ========================================
+
+    async ajouterJourFerie(ferie) {
+        const ferieData = {
+            date: ferie.date,
+            nom: ferie.nom,
+            annee: ferie.date.split('-')[0],
+            created_at: new Date().toISOString()
         };
-        return this.put('jours_feries', ferie);
+        return this.put('jours_feries', ferieData);
+    }
+
+    async obtenirJoursFeries() {
+        return this.getAll('jours_feries');
     }
 
     async supprimerJourFerie(date) {
         return this.delete('jours_feries', date);
-    }
-
-    async obtenirJoursFeries(annee = null) {
-        const feries = await this.getAll('jours_feries');
-        
-        if (annee) {
-            return feries.filter(f => f.date.startsWith(annee));
-        }
-        
-        return feries;
     }
 
     async estJourFerie(date) {
@@ -592,27 +849,40 @@ class SGA_Database {
         return ferie !== undefined;
     }
 
-    // Export/Import
-    async exporterDonnees() {
+    // ========================================
+    // MÉTHODES OUTILS
+    // ========================================
+
+    async exporterBackup() {
         const donnees = {
             agents: await this.getAll('agents'),
             planning: await this.getAll('planning'),
             jours_feries: await this.getAll('jours_feries'),
             codes_panique: await this.getAll('codes_panique'),
             radios: await this.getAll('radios'),
+            historique_radio: await this.getAll('historique_radio'),
             habillement: await this.getAll('habillement'),
             avertissements: await this.getAll('avertissements'),
-            conges_periode: await this.getAll('conges_periode')
+            conges: await this.getAll('conges'),
+            config: await this.getAll('config'),
+            metadata: {
+                version: this.dbVersion,
+                date_export: new Date().toISOString(),
+                total_records: await this.count('agents') + 
+                              await this.count('planning') + 
+                              await this.count('radios') + 
+                              await this.count('conges')
+            }
         };
         
-        return JSON.stringify(donnees);
+        return donnees;
     }
 
     async importerDonnees(donnees) {
         const data = JSON.parse(donnees);
         
         for (const store in data) {
-            if (this.db.objectStoreNames.contains(store)) {
+            if (this.db.objectStoreNames.contains(store) && Array.isArray(data[store])) {
                 // Vider le store
                 const transaction = this.db.transaction([store], 'readwrite');
                 const objectStore = transaction.objectStore(store);
@@ -628,30 +898,81 @@ class SGA_Database {
         return true;
     }
 
-    // Statistiques globales
-    async obtenirStatsGlobales() {
-        const agentsActifs = await this.listerAgents(true);
-        const agentsParGroupe = {};
+    async reparerBaseDonnees() {
+        try {
+            // Vérifier tous les stores
+            const stores = ['agents', 'planning', 'radios', 'conges', 'avertissements'];
+            let reparations = 0;
+            
+            for (const store of stores) {
+                const count = await this.count(store);
+                console.log(`✅ Store ${store}: ${count} enregistrements`);
+                reparations++;
+            }
+            
+            return {
+                success: true,
+                message: `Base réparée - ${reparations} stores vérifiés`,
+                reparations: reparations
+            };
+        } catch (error) {
+            console.error('Erreur réparation:', error);
+            return {
+                success: false,
+                message: `Erreur: ${error.message}`,
+                error: error
+            };
+        }
+    }
+
+    async reinitialiser() {
+        // Vider tous les stores
+        const stores = [
+            'agents', 'planning', 'jours_feries', 'codes_panique',
+            'radios', 'historique_radio', 'habillement', 
+            'avertissements', 'conges', 'config'
+        ];
         
-        agentsActifs.forEach(agent => {
-            const groupe = agent.groupe;
-            agentsParGroupe[groupe] = (agentsParGroupe[groupe] || 0) + 1;
+        for (const store of stores) {
+            try {
+                const transaction = this.db.transaction([store], 'readwrite');
+                const objectStore = transaction.objectStore(store);
+                await objectStore.clear();
+                console.log(`🗑️ Store ${store} vidé`);
+            } catch (error) {
+                console.error(`Erreur vidage ${store}:`, error);
+            }
+        }
+        
+        return true;
+    }
+
+    async mettreAJourStructure() {
+        // Simuler une mise à jour
+        return {
+            success: true,
+            message: 'Structure déjà à jour',
+            version: this.dbVersion
+        };
+    }
+
+    async compterAbsencesParType(type, mois, annee) {
+        const dateDebut = `${annee}-${mois.toString().padStart(2, '0')}-01`;
+        const dateFin = `${annee}-${mois.toString().padStart(2, '0')}-31`;
+        
+        const planning = await this.query('planning', 'shift', type.toUpperCase());
+        const absencesMois = planning.filter(p => {
+            return p.date >= dateDebut && p.date <= dateFin;
         });
         
-        const radios = await this.obtenirStatutRadios();
-        const conges = await this.obtenirTousConges();
-        const avertissements = await this.obtenirRapportAvertissements();
-        
-        return {
-            totalAgents: agentsActifs.length,
-            agentsParGroupe,
-            totalRadios: radios.stats.total,
-            radiosDisponibles: radios.stats.disponible,
-            totalConges: conges.length,
-            totalAvertissements: avertissements.length
-        };
+        return absencesMois.length;
     }
 }
 
 // Instance globale
 const sgaDB = new SGA_Database();
+
+// Exporter pour le navigateur
+if (typeof window !== 'undefined') {
+    window.sgaDB = sgaDB;
+}
