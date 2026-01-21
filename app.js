@@ -6,109 +6,67 @@ class SGA_App {
         this.currentPage = 'menu';
         this.history = [];
         this.theme = localStorage.getItem('sga-theme') || 'light';
-        this.exportUtils = null; 
+        
+        // Debug
+        console.log('🚀 SGA_App constructor');
+        console.log('📁 DB instance:', this.db);
+        console.log('🎨 Theme:', this.theme);
+        
         this.initialize();
     }
 
     async initialize() {
-        // Initialiser la base de données
-        await this.db.initialize();
+        console.log('🔄 Initialisation SGA_App');
         
-        // Initialiser le moteur de planning
-        this.planningEngine = new PlanningEngine(this.db);
-        
-        // Appliquer le thème
-        this.applyTheme();
-        
-        // Configurer les événements
-        this.setupEventListeners();
-        
-        // Charger les données initiales si nécessaire
-        await this.loadInitialData();
-        
-        // Afficher la page d'accueil
-        this.showMainMenu();
-        
-        // Mettre à jour les infos de base
-        this.updateBaseInfo();
-        
-        console.log('SGA PWA initialisée avec succès');
-    }
-
-    applyTheme() {
-        document.documentElement.setAttribute('data-theme', this.theme);
-        const themeBtn = document.getElementById('themeBtn');
-        if (themeBtn) {
-            themeBtn.textContent = this.theme === 'dark' ? '☀️' : '🌙';
-        }
-    }
-
-    setupEventListeners() {
-        // Navigation par onglets
-        document.querySelectorAll('.nav-tab').forEach(tab => {
-            tab.addEventListener('click', (e) => {
-                const page = e.currentTarget.dataset.page;
-                this.navigateTo(page);
-            });
-        });
-
-        // Bouton retour
-        document.getElementById('backBtn').addEventListener('click', () => {
-            this.goBack();
-        });
-
-        // Bouton thème
-        document.getElementById('themeBtn').addEventListener('click', () => {
-            this.toggleTheme();
-        });
-
-        // Bouton synchronisation
-        document.getElementById('syncBtn').addEventListener('click', () => {
-            this.syncData();
-        });
-
-        // Gestion du clic en dehors des modals
-        document.getElementById('modalOverlay').addEventListener('click', () => {
-            this.closeModal();
-        });
-
-        // Touche Échap pour fermer les modals
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') {
-                this.closeModal();
-            }
-        });
-    }
-
-    async loadInitialData() {
-        // Vérifier si la base est vide
-        const agentsCount = await this.db.count('agents');
-        if (agentsCount === 0) {
-            // Charger les agents depuis le fichier JSON
-            try {
-                const response = await fetch('data/agents-init.json');
-                const agents = await response.json();
-                
-                for (const agent of agents) {
-                    await this.db.ajouterAgent(agent);
-                }
-                
-                this.showToast(`${agents.length} agents chargés`, 'success');
-            } catch (error) {
-                console.log('Aucun fichier d\'agents initial trouvé');
-            }
+        try {
+            // Initialiser la base de données
+            console.log('📦 Initialisation base...');
+            await this.db.initialize();
+            console.log('✅ Base initialisée');
+            
+            // Initialiser le moteur de planning
+            this.planningEngine = new PlanningEngine(this.db);
+            
+            // Appliquer le thème
+            this.applyTheme();
+            
+            // Configurer les événements
+            this.setupEventListeners();
+            
+            // Charger les données initiales si nécessaire
+            await this.loadInitialData();
+            
+            // Afficher la page d'accueil
+            this.showMainMenu();
+            
+            // Mettre à jour les infos de base
+            this.updateBaseInfo();
+            
+            console.log('🎉 SGA PWA initialisée avec succès');
+            
+        } catch (error) {
+            console.error('❌ Erreur initialisation:', error);
+            this.showToast(`Erreur: ${error.message}`, 'error');
         }
     }
 
     updateBaseInfo() {
-        // Mettre à jour les informations de la base
+        console.log('🔄 Mise à jour info base...');
         this.db.obtenirStatsGlobales().then(stats => {
+            console.log('📊 Stats reçues:', stats);
             const dbInfo = document.getElementById('dbInfo');
             if (dbInfo) {
                 dbInfo.textContent = `Agents: ${stats.totalAgents} | Radios: ${stats.totalRadios}`;
             }
+        }).catch(error => {
+            console.error('❌ Erreur stats:', error);
+            const dbInfo = document.getElementById('dbInfo');
+            if (dbInfo) {
+                dbInfo.textContent = 'Base: Erreur de chargement';
+            }
         });
     }
+}
 
     navigateTo(page, pushHistory = true) {
         if (page === this.currentPage) return;
