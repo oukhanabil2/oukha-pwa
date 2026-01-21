@@ -1,4 +1,4 @@
-// Application SGA PWA - Version complète avec toutes les fonctionnalités
+// Application SGA PWA - Version complète corrigée
 class SGA_App {
     constructor() {
         this.db = sgaDB;
@@ -6,13 +6,9 @@ class SGA_App {
         this.currentPage = 'menu';
         this.history = [];
         this.theme = localStorage.getItem('sga-theme') || 'light';
+        this.exportUtils = null;
         
-        // Debug
         console.log('🚀 SGA_App constructor');
-        console.log('📁 DB instance:', this.db);
-        console.log('🎨 Theme:', this.theme);
-        
-        this.initialize();
     }
 
     async initialize() {
@@ -20,21 +16,24 @@ class SGA_App {
         
         try {
             // Initialiser la base de données
-            console.log('📦 Initialisation base...');
             await this.db.initialize();
             console.log('✅ Base initialisée');
             
             // Initialiser le moteur de planning
             this.planningEngine = new PlanningEngine(this.db);
             
-            // Appliquer le thème
-            this.applyTheme();
+            // Initialiser les utilitaires d'export
+            this.exportUtils = new ExportUtils(this.db);
+            this.exportUtils.setPlanningEngine(this.planningEngine);
             
             // Configurer les événements
             this.setupEventListeners();
             
-            // Charger les données initiales si nécessaire
+            // Charger les agents initiaux si base vide
             await this.loadInitialData();
+            
+            // Appliquer le thème
+            this.applyTheme();
             
             // Afficher la page d'accueil
             this.showMainMenu();
@@ -50,41 +49,80 @@ class SGA_App {
         }
     }
 
+    applyTheme() {
+        document.documentElement.setAttribute('data-theme', this.theme);
+    }
+
+    setupEventListeners() {
+        // Navigation
+        document.querySelectorAll('.nav-tab').forEach(tab => {
+            tab.addEventListener('click', (e) => {
+                const page = e.target.dataset.page;
+                this.navigateTo(page);
+            });
+        });
+
+        // Bouton retour
+        document.getElementById('backBtn')?.addEventListener('click', () => this.goBack());
+        
+        // Bouton thème
+        document.getElementById('themeBtn')?.addEventListener('click', () => this.toggleTheme());
+        
+        // Bouton synchronisation
+        document.getElementById('syncBtn')?.addEventListener('click', () => this.syncData());
+        
+        // Fermer modal avec ESC
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') this.closeModal();
+        });
+        
+        // Fermer modal en cliquant sur l'overlay
+        document.getElementById('modalOverlay')?.addEventListener('click', (e) => {
+            if (e.target.id === 'modalOverlay') this.closeModal();
+        });
+    }
+
+    async loadInitialData() {
+        try {
+            const agents = await this.db.listerAgents();
+            if (agents.length === 0) {
+                console.log('📥 Base vide - prête pour ajout manuel');
+            }
+        } catch (error) {
+            console.error('❌ Erreur chargement initial:', error);
+        }
+    }
+
     updateBaseInfo() {
-        console.log('🔄 Mise à jour info base...');
         this.db.obtenirStatsGlobales().then(stats => {
-            console.log('📊 Stats reçues:', stats);
             const dbInfo = document.getElementById('dbInfo');
             if (dbInfo) {
-                dbInfo.textContent = `Agents: ${stats.totalAgents} | Radios: ${stats.totalRadios}`;
+                dbInfo.textContent = `Agents: ${stats.totalAgents} | Radios: ${stats.totalRadios || 0}`;
             }
         }).catch(error => {
             console.error('❌ Erreur stats:', error);
-            const dbInfo = document.getElementById('dbInfo');
-            if (dbInfo) {
-                dbInfo.textContent = 'Base: Erreur de chargement';
-            }
         });
     }
-}
 
+    // ========================================
+    // FONCTIONS DE NAVIGATION
+    // ========================================
     navigateTo(page, pushHistory = true) {
         if (page === this.currentPage) return;
         
-        // Ajouter à l'historique
         if (pushHistory && this.currentPage !== 'menu') {
             this.history.push(this.currentPage);
         }
         
-        // Afficher le bouton retour si nécessaire
         const backBtn = document.getElementById('backBtn');
-        if (page !== 'menu' && this.history.length > 0) {
-            backBtn.style.display = 'block';
-        } else {
-            backBtn.style.display = 'none';
+        if (backBtn) {
+            if (page !== 'menu' && this.history.length > 0) {
+                backBtn.style.display = 'block';
+            } else {
+                backBtn.style.display = 'none';
+            }
         }
         
-        // Mettre à jour la navigation
         document.querySelectorAll('.nav-tab').forEach(tab => {
             tab.classList.remove('active');
             if (tab.dataset.page === page) {
@@ -92,18 +130,16 @@ class SGA_App {
             }
         });
         
-        // Masquer toutes les pages
         document.querySelectorAll('.page').forEach(p => {
             p.classList.remove('active');
         });
         
-        // Afficher la page demandée
-        document.getElementById(`page${page.charAt(0).toUpperCase() + page.slice(1)}`).classList.add('active');
+        const pageElement = document.getElementById(`page${page.charAt(0).toUpperCase() + page.slice(1)}`);
+        if (pageElement) {
+            pageElement.classList.add('active');
+        }
         
-        // Mettre à jour le sous-titre
         this.updateSubtitle(page);
-        
-        // Charger le contenu de la page
         this.loadPageContent(page);
         
         this.currentPage = page;
@@ -170,6 +206,91 @@ class SGA_App {
             case 'outils':
                 this.showOutilsPage();
                 break;
+        }
+    }
+
+    // ========================================
+    // FONCTIONS UTILITAIRES
+    // ========================================
+    showModal(content) {
+        const modal = document.getElementById('modalOverlay');
+        const modalContainer = document.getElementById('modalContainer');
+        
+        if (!modal || !modalContainer) {
+            console.error('❌ Éléments modal non trouvés');
+            return;
+        }
+        
+        modalContainer.innerHTML = content;
+        modal.style.display = 'block';
+        modalContainer.style.display = 'block';
+        
+        // Focus sur le premier champ
+        setTimeout(() => {
+            const firstInput = modalContainer.querySelector('input, select, textarea');
+            if (firstInput) firstInput.focus();
+        }, 100);
+    }
+
+    closeModal() {
+        const modal = document.getElementById('modalOverlay');
+        const modalContainer = document.getElementById('modalContainer');
+        
+        if (modal) modal.style.display = 'none';
+        if (modalContainer) modalContainer.style.display = 'none';
+    }
+
+    showToast(message, type = 'info') {
+        // Créer le conteneur s'il n'existe pas
+        let container = document.getElementById('toastContainer');
+        if (!container) {
+            container = document.createElement('div');
+            container.id = 'toastContainer';
+            container.className = 'toast-container';
+            document.body.appendChild(container);
+        }
+        
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+        toast.textContent = message;
+        
+        container.appendChild(toast);
+        
+        setTimeout(() => toast.classList.add('show'), 10);
+        
+        setTimeout(() => {
+            toast.classList.remove('show');
+            setTimeout(() => {
+                if (toast.parentNode) {
+                    toast.parentNode.removeChild(toast);
+                }
+            }, 300);
+        }, 3000);
+    }
+
+    toggleTheme() {
+        this.theme = this.theme === 'light' ? 'dark' : 'light';
+        localStorage.setItem('sga-theme', this.theme);
+        this.applyTheme();
+        
+        const icon = document.getElementById('themeBtn');
+        if (icon) {
+            icon.textContent = this.theme === 'light' ? '🌙' : '☀️';
+        }
+    }
+
+    async syncData() {
+        this.showToast('Synchronisation en cours...', 'info');
+        
+        try {
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            
+            localStorage.setItem('sga-last-sync', new Date().toLocaleString());
+            this.updateBaseInfo();
+            
+            this.showToast('Synchronisation terminée', 'success');
+        } catch (error) {
+            this.showToast('Erreur de synchronisation', 'error');
         }
     }
 
@@ -243,17 +364,16 @@ class SGA_App {
             }
         ];
         
-        menuGrid.innerHTML = menuItems.map(item => `
-            <div class="menu-card" onclick="${item.action.toString().replace(/\n/g, ' ')}">
+        menuGrid.innerHTML = '';
+        menuItems.forEach(item => {
+            const card = document.createElement('div');
+            card.className = 'menu-card';
+            card.innerHTML = `
                 <h3><span>${item.icon}</span> ${item.title}</h3>
                 <p>${item.description}</p>
-            </div>
-        `).join('');
-        
-        // Réattacher les événements
-        menuItems.forEach((item, index) => {
-            const card = menuGrid.children[index];
+            `;
             card.addEventListener('click', item.action);
+            menuGrid.appendChild(card);
         });
     }
 
@@ -267,9 +387,6 @@ class SGA_App {
             <div class="page-actions">
                 <button class="btn btn-success" onclick="sgaApp.showAjouterAgentForm()">
                     ➕ Ajouter Agent
-                </button>
-                <button class="btn btn-info" onclick="sgaApp.showImporterExcelForm()">
-                    📥 Importer Excel
                 </button>
                 <button class="btn btn-secondary" onclick="sgaApp.exporterAgentsExcel()">
                     📤 Exporter Excel
@@ -337,12 +454,14 @@ class SGA_App {
             });
             
             // Mettre à jour les statistiques
-            statsDiv.innerHTML = `
-                <strong>Total: ${agents.length} agents</strong> | 
-                A: ${groupes['A'] || 0} | B: ${groupes['B'] || 0} | 
-                C: ${groupes['C'] || 0} | D: ${groupes['D'] || 0} | 
-                E: ${groupes['E'] || 0}
-            `;
+            if (statsDiv) {
+                statsDiv.innerHTML = `
+                    <strong>Total: ${agents.length} agents</strong> | 
+                    A: ${groupes['A'] || 0} | B: ${groupes['B'] || 0} | 
+                    C: ${groupes['C'] || 0} | D: ${groupes['D'] || 0} | 
+                    E: ${groupes['E'] || 0}
+                `;
+            }
             
             // Remplir le tableau
             tbody.innerHTML = agents.map(agent => `
@@ -352,7 +471,7 @@ class SGA_App {
                     <td>${agent.prenom}</td>
                     <td><span class="badge badge-groupe-${agent.groupe}">${agent.groupe}</span></td>
                     <td>${agent.date_entree || '-'}</td>
-                    <td><span class="badge ${agent.statut === 'actif' ? 'badge-shift-R' : 'badge-shift-A'}">
+                    <td><span class="badge ${agent.statut === 'actif' ? 'badge-shift-1' : 'badge-shift-A'}">
                         ${agent.statut === 'actif' ? 'Actif' : 'Inactif'}
                     </span></td>
                     <td>
@@ -427,7 +546,7 @@ class SGA_App {
                 <div class="form-group">
                     <label class="form-label">Date d'entrée</label>
                     <input type="date" class="form-input" name="date_entree" 
-                           value="2025-11-01">
+                           value="${new Date().toISOString().split('T')[0]}">
                 </div>
                 
                 <div class="form-actions">
@@ -510,7 +629,7 @@ class SGA_App {
                         <div class="form-group">
                             <label class="form-label">Date d'entrée</label>
                             <input type="date" class="form-input" name="date_entree" 
-                                   value="${agent.date_entree || '2025-11-01'}">
+                                   value="${agent.date_entree || new Date().toISOString().split('T')[0]}">
                         </div>
                         <div class="form-group">
                             <label class="form-label">Date de sortie</label>
@@ -642,9 +761,6 @@ class SGA_App {
                 </div>
                 
                 <div class="modal-actions">
-                    <button class="btn" onclick="sgaApp.exporterPlanningAgent('${code}', ${mois}, ${annee})">
-                        📤 Exporter PDF
-                    </button>
                     <button class="btn btn-secondary" onclick="sgaApp.closeModal()">
                         Fermer
                     </button>
@@ -657,922 +773,7 @@ class SGA_App {
         }
     }
 
-    async voirStatsAgent(code) {
-        try {
-            const agent = await this.db.obtenirAgent(code);
-            const mois = new Date().getMonth() + 1;
-            const annee = new Date().getFullYear();
-            
-            const stats = await this.planningEngine.calculerStatsAgent(code, mois, annee);
-            
-            let html = `
-                <div class="modal-header">
-                    <h3 class="modal-title">📊 Statistiques ${agent.code}</h3>
-                    <button class="modal-close" onclick="sgaApp.closeModal()">×</button>
-                </div>
-                
-                <div class="agent-info">
-                    <p><strong>${agent.nom} ${agent.prenom}</strong> | Groupe: ${agent.groupe}</p>
-                    <p>Période: ${mois}/${annee}</p>
-                </div>
-                
-                <div class="stats-details">
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>Description</th>
-                                <th>Valeur</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td>Shifts Matin (1)</td>
-                                <td><span class="badge badge-shift-1">${stats.stats['1']}</span></td>
-                            </tr>
-                            <tr>
-                                <td>Shifts Après-midi (2)</td>
-                                <td><span class="badge badge-shift-2">${stats.stats['2']}</span></td>
-                            </tr>
-                            <tr>
-                                <td>Shifts Nuit (3)</td>
-                                <td><span class="badge badge-shift-3">${stats.stats['3']}</span></td>
-                            </tr>
-                            <tr>
-                                <td>Jours Repos (R)</td>
-                                <td><span class="badge badge-shift-R">${stats.stats['R']}</span></td>
-                            </tr>
-                            <tr>
-                                <td>Congés (C)</td>
-                                <td><span class="badge badge-shift-C">${stats.stats['C']}</span></td>
-                            </tr>
-                            <tr>
-                                <td>Maladie (M)</td>
-                                <td><span class="badge badge-shift-M">${stats.stats['M']}</span></td>
-                            </tr>
-                            <tr>
-                                <td>Autre Absence (A)</td>
-                                <td><span class="badge badge-shift-A">${stats.stats['A']}</span></td>
-                            </tr>
-                            <tr>
-                                <td>Fériés travaillés</td>
-                                <td>${stats.joursFeriesTravailles}</td>
-                            </tr>
-                            <tr>
-                                <td>Non-planifié (-)</td>
-                                <td>${stats.stats['-']}</td>
-                            </tr>
-                            <tr class="total-row">
-                                <td><strong>TOTAL SHIFTS OPÉRATIONNELS</strong></td>
-                                <td><strong class="total-value">${stats.totalOperationnels}</strong></td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-                
-                <div class="stats-summary">
-                    <p><strong>Total jours: ${stats.totalJours}</strong></p>
-                    <p>Jours travaillés: ${stats.totalJoursTravailles}</p>
-                    <p>Taux de présence: ${((stats.totalJoursTravailles / stats.totalJours) * 100).toFixed(1)}%</p>
-                </div>
-                
-                <div class="modal-actions">
-                    <button class="btn" onclick="sgaApp.exporterStatsAgentPDF('${code}', ${mois}, ${annee})">
-                        📤 Exporter PDF
-                    </button>
-                    <button class="btn btn-info" onclick="sgaApp.comparerMoisPrecedent('${code}', ${mois}, ${annee})">
-                    🔄 Comparer
-                    </button>
-                    <button class="btn btn-secondary" onclick="sgaApp.closeModal()">
-                        Fermer
-                    </button>
-                </div>
-            `;
-            
-            this.showModal(html);
-        } catch (error) {
-            this.showToast(`Erreur: ${error.message}`, 'error');
-        }
-    }
-
-    // ========================================
-    // PAGE PLANNING
-    // ========================================
-    async showPlanningPage() {
-        const content = document.getElementById('planningContent');
-        
-        content.innerHTML = `
-            <div class="page-header">
-                <h3>📅 GESTION DU PLANNING</h3>
-                <p>Sélectionnez une option ci-dessous</p>
-            </div>
-            
-            <div class="menu-grid">
-                <div class="menu-card" onclick="sgaApp.showPlanningGlobal()">
-                    <h3><span>🌍</span> PLANNING MENSUEL GLOBAL</h3>
-                    <p>Vue complète de tous les agents</p>
-                </div>
-                <div class="menu-card" onclick="sgaApp.showPlanningParAgent()">
-                    <h3><span>👤</span> PLANNING MENSUEL AGENT</h3>
-                    <p>Planning individuel par agent</p>
-                </div>
-                <div class="menu-card" onclick="sgaApp.showPlanningParGroupe()">
-                    <h3><span>👥</span> PLANNING PAR GROUPE</h3>
-                    <p>Planning par équipe A, B, C, D, E</p>
-                </div>
-                <div class="menu-card" onclick="sgaApp.showModifierShiftForm()">
-                    <h3><span>✏️</span> MODIFIER SHIFT</h3>
-                    <p>Changement ponctuel de shift</p>
-                </div>
-                <div class="menu-card" onclick="sgaApp.showEchangerShiftsForm()">
-                    <h3><span>🔄</span> ÉCHANGER SHIFTS</h3>
-                    <p>Échange de shifts entre agents</p>
-                </div>
-                <div class="menu-card" onclick="sgaApp.showEnregistrerAbsenceForm()">
-                    <h3><span>🏖️</span> ENREGISTRER ABSENCE</h3>
-                    <p>Congé, maladie, autre absence</p>
-                </div>
-            </div>
-            
-            <div class="quick-actions">
-                <button class="btn" onclick="sgaApp.genererPlanningMensuel()">
-                    🎯 Générer Planning du Mois
-                </button>
-                <button class="btn btn-secondary" onclick="sgaApp.exporterPlanningExcel()">
-                    📤 Exporter Planning Excel
-                </button>
-            </div>
-        `;
-    }
-
-    async showPlanningGlobal() {
-        const mois = new Date().getMonth() + 1;
-        const annee = new Date().getFullYear();
-        
-        this.showModal(`
-            <div class="modal-header">
-                <h3 class="modal-title">🌍 Planning Mensuel Global</h3>
-                <button class="modal-close" onclick="sgaApp.closeModal()">×</button>
-            </div>
-            
-            <div class="form-group">
-                <label class="form-label">Mois</label>
-                <select class="form-select" id="planningMois">
-                    ${Array.from({length: 12}, (_, i) => 
-                        `<option value="${i+1}" ${i+1 === mois ? 'selected' : ''}>
-                            ${new Date(2000, i, 1).toLocaleDateString('fr-FR', {month: 'long'})}
-                        </option>`
-                    ).join('')}
-                </select>
-            </div>
-            
-            <div class="form-group">
-                <label class="form-label">Année</label>
-                <input type="number" class="form-input" id="planningAnnee" 
-                       value="${annee}" min="2020" max="2030">
-            </div>
-            
-            <div class="modal-actions">
-                <button class="btn btn-success" onclick="sgaApp.afficherPlanningGlobal()">
-                    Afficher Planning
-                </button>
-                <button class="btn btn-secondary" onclick="sgaApp.closeModal()">
-                    Annuler
-                </button>
-            </div>
-        `);
-    }
-
-    async afficherPlanningGlobal() {
-        const mois = parseInt(document.getElementById('planningMois').value);
-        const annee = parseInt(document.getElementById('planningAnnee').value);
-        
-        try {
-            const agents = await this.db.listerAgents();
-            const joursDansMois = new Date(annee, mois, 0).getDate();
-            
-            let html = `
-                <div class="modal-header">
-                    <h3 class="modal-title">Planning Global - ${mois}/${annee}</h3>
-                    <button class="modal-close" onclick="sgaApp.closeModal()">×</button>
-                </div>
-                
-                <div class="planning-info">
-                    <p><strong>${agents.length} agents</strong> | ${joursDansMois} jours</p>
-                </div>
-                
-                <div class="table-container">
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>Code</th>
-                                <th>Nom</th>
-                                <th>Groupe</th>
-                                ${Array.from({length: joursDansMois}, (_, i) => 
-                                    `<th title="${i+1}/${mois}">J${i+1}</th>`
-                                ).join('')}
-                                <th>Stats</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-            `;
-            
-            for (const agent of agents) {
-                const planning = await this.planningEngine.genererPlanningTheorique(agent.code, mois, annee);
-                
-                html += `
-                    <tr>
-                        <td><strong>${agent.code}</strong></td>
-                        <td>${agent.nom} ${agent.prenom}</td>
-                        <td><span class="badge badge-groupe-${agent.groupe}">${agent.groupe}</span></td>
-                `;
-                
-                planning.forEach(jour => {
-                    let className = '';
-                    if (jour.est_dimanche) className = 'dimanche';
-                    if (jour.ferie) className = 'ferie';
-                    
-                    html += `
-                        <td class="${className}">
-                            <span class="badge badge-shift-${jour.shift}">${jour.shift}</span>
-                        </td>
-                    `;
-                });
-                
-                // Calculer les stats
-                const stats = await this.planningEngine.calculerStatsAgent(agent.code, mois, annee);
-                
-                html += `
-                        <td>
-                            <button class="btn-icon" onclick="sgaApp.voirStatsAgent('${agent.code}')" 
-                                    title="Voir statistiques">
-                                ${stats.totalOperationnels}⚡
-                            </button>
-                        </td>
-                    </tr>
-                `;
-            }
-            
-            html += `
-                        </tbody>
-                    </table>
-                </div>
-                
-                <div class="modal-actions">
-                    <button class="btn" onclick="sgaApp.exporterPlanningGlobalExcel(${mois}, ${annee})">
-                        📤 Exporter Excel
-                    </button>
-                    <button class="btn btn-secondary" onclick="sgaApp.closeModal()">
-                        Fermer
-                    </button>
-                </div>
-            `;
-            
-            this.showModal(html);
-        } catch (error) {
-            this.showToast(`Erreur: ${error.message}`, 'error');
-        }
-    }
-
-    async showPlanningParGroupe() {
-        this.showModal(`
-            <div class="modal-header">
-                <h3 class="modal-title">👥 Planning par Groupe</h3>
-                <button class="modal-close" onclick="sgaApp.closeModal()">×</button>
-            </div>
-            
-            <div class="form-group">
-                <label class="form-label">Groupe</label>
-                <select class="form-select" id="planningGroupe">
-                    <option value="A">Groupe A</option>
-                    <option value="B">Groupe B</option>
-                    <option value="C">Groupe C</option>
-                    <option value="D">Groupe D</option>
-                    <option value="E">Groupe E</option>
-                </select>
-            </div>
-            
-            <div class="form-row">
-                <div class="form-group">
-                    <label class="form-label">Mois</label>
-                    <select class="form-select" id="planningGroupeMois">
-                        ${Array.from({length: 12}, (_, i) => 
-                            `<option value="${i+1}">
-                                ${new Date(2000, i, 1).toLocaleDateString('fr-FR', {month: 'long'})}
-                            </option>`
-                        ).join('')}
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label class="form-label">Année</label>
-                    <input type="number" class="form-input" id="planningGroupeAnnee" 
-                           value="${new Date().getFullYear()}" min="2020" max="2030">
-                </div>
-            </div>
-            
-            <div class="modal-actions">
-                <button class="btn btn-success" onclick="sgaApp.afficherPlanningGroupe()">
-                    Afficher Planning
-                </button>
-                <button class="btn btn-secondary" onclick="sgaApp.closeModal()">
-                    Annuler
-                </button>
-            </div>
-        `);
-    }
-
-    async afficherPlanningGroupe() {
-        const groupe = document.getElementById('planningGroupe').value;
-        const mois = parseInt(document.getElementById('planningGroupeMois').value);
-        const annee = parseInt(document.getElementById('planningGroupeAnnee').value);
-        
-        try {
-            const planningGroupe = await this.planningEngine.genererPlanningGroupe(groupe, mois, annee);
-            const joursDansMois = new Date(annee, mois, 0).getDate();
-            
-            let html = `
-                <div class="modal-header">
-                    <h3 class="modal-title">Planning Groupe ${groupe} - ${mois}/${annee}</h3>
-                    <button class="modal-close" onclick="sgaApp.closeModal()">×</button>
-                </div>
-                
-                <div class="planning-info">
-                    <p><strong>${planningGroupe.length} agents</strong> | ${joursDansMois} jours</p>
-                </div>
-                
-                <div class="table-container">
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>Code</th>
-                                <th>Nom</th>
-                                ${Array.from({length: joursDansMois}, (_, i) => 
-                                    `<th title="${i+1}/${mois}">J${i+1}</th>`
-                                ).join('')}
-                                <th>Stats</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-            `;
-            
-            for (const item of planningGroupe) {
-                const agent = item.agent;
-                
-                html += `
-                    <tr>
-                        <td><strong>${agent.code}</strong></td>
-                        <td>${agent.nom} ${agent.prenom}</td>
-                `;
-                
-                item.planning.forEach(jour => {
-                    let className = '';
-                    if (jour.est_dimanche) className = 'dimanche';
-                    if (jour.ferie) className = 'ferie';
-                    
-                    html += `
-                        <td class="${className}">
-                            <span class="badge badge-shift-${jour.shift}">${jour.shift}</span>
-                        </td>
-                    `;
-                });
-                
-                // Calculer les stats
-                const stats = await this.planningEngine.calculerStatsAgent(agent.code, mois, annee);
-                
-                html += `
-                        <td>
-                            <button class="btn-icon" onclick="sgaApp.voirStatsAgent('${agent.code}')" 
-                                    title="Voir statistiques">
-                                ${stats.totalOperationnels}⚡
-                            </button>
-                        </td>
-                    </tr>
-                `;
-            }
-            
-            // Calculer les stats du groupe
-            const statsGroupe = await this.planningEngine.calculerJoursTravaillesGroupe(groupe, mois, annee);
-            
-            html += `
-                        </tbody>
-                    </table>
-                </div>
-                
-                <div class="groupe-stats">
-                    <h4>Statistiques du Groupe ${groupe}</h4>
-                    <p><strong>Total jours opérationnels: ${statsGroupe}</strong></p>
-                    <p>Moyenne par agent: ${(statsGroupe / planningGroupe.length).toFixed(1)} jours</p>
-                </div>
-                
-                <div class="modal-actions">
-                    <button class="btn" onclick="sgaApp.exporterStatsGroupePDF('${groupe}', ${mois}, ${annee})">
-                        📤 Exporter Rapport
-                    </button>
-                    <button class="btn btn-info" onclick="sgaApp.afficherStatsGroupePopup('${groupe}', ${mois}, ${annee})">
-                        📊 Statistiques Détaillées
-                    </button>
-                    <button class="btn btn-secondary" onclick="sgaApp.closeModal()">
-                        Fermer
-                    </button>
-                </div>
-            `;
-            
-            this.showModal(html);
-        } catch (error) {
-            this.showToast(`Erreur: ${error.message}`, 'error');
-        }
-    }
-
-    async afficherStatsGroupePopup(groupe, mois, annee) {
-        try {
-            const agents = await this.db.obtenirAgentsParGroupe(groupe);
-            const agentsActifs = agents.filter(a => a.statut === 'actif');
-            
-            let totalShifts1 = 0;
-            let totalShifts2 = 0;
-            let totalShifts3 = 0;
-            let totalOperationnels = 0;
-            
-            const agentsStats = [];
-            
-            for (const agent of agentsActifs) {
-                const stats = await this.planningEngine.calculerStatsAgent(agent.code, mois, annee);
-                
-                totalShifts1 += stats.stats['1'];
-                totalShifts2 += stats.stats['2'];
-                totalShifts3 += stats.stats['3'];
-                totalOperationnels += stats.totalOperationnels;
-                
-                agentsStats.push({
-                    code: agent.code,
-                    nom: `${agent.nom} ${agent.prenom}`,
-                    shifts1: stats.stats['1'],
-                    shifts2: stats.stats['2'],
-                    shifts3: stats.stats['3'],
-                    total: stats.totalOperationnels
-                });
-            }
-            
-            // Trier par total décroissant
-            agentsStats.sort((a, b) => b.total - a.total);
-            
-            let html = `
-                <div class="modal-header">
-                    <h3 class="modal-title">📊 Statistiques Groupe ${groupe}</h3>
-                    <button class="modal-close" onclick="sgaApp.closeModal()">×</button>
-                </div>
-                
-                <div class="groupe-info">
-                    <p>Période: ${mois}/${annee} | Effectif: ${agentsActifs.length} agents</p>
-                </div>
-                
-                <div class="stats-resume">
-                    <h4>Résumé du Groupe</h4>
-                    <div class="stats-grid">
-                        <div class="stat-card">
-                            <div class="stat-value">${totalShifts1}</div>
-                            <div class="stat-label">Shifts Matin</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-value">${totalShifts2}</div>
-                            <div class="stat-label">Shifts Après-midi</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-value">${totalShifts3}</div>
-                            <div class="stat-label">Shifts Nuit</div>
-                        </div>
-                        <div class="stat-card total">
-                            <div class="stat-value">${totalOperationnels}</div>
-                            <div class="stat-label">TOTAL</div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="classement-groupe">
-                    <h4>Classement par Total</h4>
-                    <div class="table-container">
-                        <table class="table">
-                            <thead>
-                                <tr>
-                                    <th>Rang</th>
-                                    <th>Code</th>
-                                    <th>Nom</th>
-                                    <th>TOTAL</th>
-                                    <th>Répartition</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-            `;
-            
-            agentsStats.forEach((agent, index) => {
-                let rangText = `${index + 1}.`;
-                let rangClass = '';
-                
-                if (index === 0) {
-                    rangText = '🥇 1.';
-                    rangClass = 'gold';
-                } else if (index === 1) {
-                    rangText = '🥈 2.';
-                    rangClass = 'silver';
-                } else if (index === 2) {
-                    rangText = '🥉 3.';
-                    rangClass = 'bronze';
-                }
-                
-                html += `
-                    <tr>
-                        <td class="${rangClass}"><strong>${rangText}</strong></td>
-                        <td><strong>${agent.code}</strong></td>
-                        <td>${agent.nom}</td>
-                        <td><strong class="total-value">${agent.total}</strong></td>
-                        <td>${agent.shifts1}-${agent.shifts2}-${agent.shifts3}</td>
-                    </tr>
-                `;
-            });
-            
-            html += `
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-                
-                <div class="modal-actions">
-                    <button class="btn" onclick="sgaApp.exporterStatsGroupePDF('${groupe}', ${mois}, ${annee})">
-                        📤 Exporter Rapport
-                    </button>
-                    <button class="btn btn-secondary" onclick="sgaApp.closeModal()">
-                        Fermer
-                    </button>
-                </div>
-            `;
-            
-            this.showModal(html);
-        } catch (error) {
-            this.showToast(`Erreur: ${error.message}`, 'error');
-        }
-    }
-
-    async showModifierShiftForm() {
-        this.showModal(`
-            <div class="modal-header">
-                <h3 class="modal-title">✏️ Modifier Shift</h3>
-                <button class="modal-close" onclick="sgaApp.closeModal()">×</button>
-            </div>
-            
-            <form id="formModifierShift" onsubmit="return sgaApp.validerModifierShift(event)">
-                <div class="form-group">
-                    <label class="form-label">Code Agent</label>
-                    <input type="text" class="form-input" name="code_agent" 
-                           placeholder="Ex: CPA, CONA" required>
-                </div>
-                
-                <div class="form-group">
-                    <label class="form-label">Date</label>
-                    <input type="date" class="form-input" name="date" required>
-                </div>
-                
-                <div class="form-group">
-                    <label class="form-label">Nouveau Shift</label>
-                    <select class="form-select" name="shift" required>
-                        <option value="">Sélectionner...</option>
-                        <option value="1">1 (Matin)</option>
-                        <option value="2">2 (Après-midi)</option>
-                        <option value="3">3 (Nuit)</option>
-                        <option value="R">R (Repos)</option>
-                        <option value="C">C (Congé)</option>
-                        <option value="M">M (Maladie)</option>
-                        <option value="A">A (Autre absence)</option>
-                    </select>
-                </div>
-                
-                <div class="modal-actions">
-                    <button type="submit" class="btn btn-success">Modifier</button>
-                    <button type="button" class="btn btn-secondary" onclick="sgaApp.closeModal()">
-                        Annuler
-                    </button>
-                </div>
-            </form>
-        `);
-    }
-
-    async validerModifierShift(event) {
-        event.preventDefault();
-        const formData = new FormData(event.target);
-        
-        const code_agent = formData.get('code_agent').toUpperCase();
-        const date = formData.get('date');
-        const shift = formData.get('shift');
-        
-        try {
-            // Vérifier si l'agent existe
-            const agent = await this.db.obtenirAgent(code_agent);
-            if (!agent) {
-                throw new Error('Agent non trouvé');
-            }
-            
-            // Vérifier si on peut modifier le shift
-            const peutModifier = await this.planningEngine.peutModifierShift(code_agent, date);
-            if (!peutModifier) {
-                throw new Error('Impossible de modifier ce shift (congé/maladie/absence)');
-            }
-            
-            // Modifier le shift
-            await this.db.modifierShiftPonctuel(code_agent, date, shift);
-            
-            this.closeModal();
-            this.showToast(`Shift modifié pour ${code_agent} le ${date}`, 'success');
-        } catch (error) {
-            this.showToast(`Erreur: ${error.message}`, 'error');
-        }
-    }
-
-    async showEchangerShiftsForm() {
-        this.showModal(`
-            <div class="modal-header">
-                <h3 class="modal-title">🔄 Échanger Shifts</h3>
-                <button class="modal-close" onclick="sgaApp.closeModal()">×</button>
-            </div>
-            
-            <form id="formEchangerShifts" onsubmit="return sgaApp.validerEchangerShifts(event)">
-                <div class="form-row">
-                    <div class="form-group">
-                        <label class="form-label">Code Agent A</label>
-                        <input type="text" class="form-input" name="code_agent_a" required>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Code Agent B</label>
-                        <input type="text" class="form-input" name="code_agent_b" required>
-                    </div>
-                </div>
-                
-                <div class="form-group">
-                    <label class="form-label">Date</label>
-                    <input type="date" class="form-input" name="date" required>
-                </div>
-                
-                <div class="modal-actions">
-                    <button type="submit" class="btn btn-success">Échanger</button>
-                    <button type="button" class="btn btn-secondary" onclick="sgaApp.closeModal()">
-                        Annuler
-                    </button>
-                </div>
-            </form>
-        `);
-    }
-
-    async validerEchangerShifts(event) {
-        event.preventDefault();
-        const formData = new FormData(event.target);
-        
-        const code_agent_a = formData.get('code_agent_a').toUpperCase();
-        const code_agent_b = formData.get('code_agent_b').toUpperCase();
-        const date = formData.get('date');
-        
-        try {
-            // Vérifier si les agents existent
-            const agentA = await this.db.obtenirAgent(code_agent_a);
-            const agentB = await this.db.obtenirAgent(code_agent_b);
-            
-            if (!agentA || !agentB) {
-                throw new Error('Un ou plusieurs agents non trouvés');
-            }
-            
-            // Échanger les shifts
-            const success = await this.db.echangerShifts(code_agent_a, code_agent_b, date);
-            
-            if (success) {
-                this.closeModal();
-                this.showToast(`Shifts échangés entre ${code_agent_a} et ${code_agent_b}`, 'success');
-            } else {
-                throw new Error('Échange impossible (shifts non trouvés)');
-            }
-        } catch (error) {
-            this.showToast(`Erreur: ${error.message}`, 'error');
-        }
-    }
-
-    async showEnregistrerAbsenceForm() {
-        this.showModal(`
-            <div class="modal-header">
-                <h3 class="modal-title">🏖️ Enregistrer Absence</h3>
-                <button class="modal-close" onclick="sgaApp.closeModal()">×</button>
-            </div>
-            
-            <form id="formEnregistrerAbsence" onsubmit="return sgaApp.validerEnregistrerAbsence(event)">
-                <div class="form-group">
-                    <label class="form-label">Code Agent</label>
-                    <input type="text" class="form-input" name="code_agent" required>
-                </div>
-                
-                <div class="form-group">
-                    <label class="form-label">Date</label>
-                    <input type="date" class="form-input" name="date" required>
-                </div>
-                
-                <div class="form-group">
-                    <label class="form-label">Type d'absence</label>
-                    <select class="form-select" name="type" required>
-                        <option value="">Sélectionner...</option>
-                        <option value="C">C (Congé)</option>
-                        <option value="M">M (Maladie)</option>
-                        <option value="A">A (Autre absence)</option>
-                    </select>
-                </div>
-                
-                <div class="modal-actions">
-                    <button type="submit" class="btn btn-success">Enregistrer</button>
-                    <button type="button" class="btn btn-secondary" onclick="sgaApp.closeModal()">
-                        Annuler
-                    </button>
-                </div>
-            </form>
-        `);
-    }
-
-    async validerEnregistrerAbsence(event) {
-        event.preventDefault();
-        const formData = new FormData(event.target);
-        
-        const code_agent = formData.get('code_agent').toUpperCase();
-        const date = formData.get('date');
-        const type = formData.get('type');
-        
-        try {
-            // Vérifier si l'agent existe
-            const agent = await this.db.obtenirAgent(code_agent);
-            if (!agent) {
-                throw new Error('Agent non trouvé');
-            }
-            
-            // Enregistrer l'absence
-            await this.db.enregistrerAbsence(code_agent, date, type);
-            
-            this.closeModal();
-            this.showToast(`Absence enregistrée pour ${code_agent}`, 'success');
-        } catch (error) {
-            this.showToast(`Erreur: ${error.message}`, 'error');
-        }
-    }
-
-    async genererPlanningMensuel() {
-        const mois = new Date().getMonth() + 1;
-        const annee = new Date().getFullYear();
-        
-        try {
-            const agents = await this.db.listerAgents();
-            let totalGenerated = 0;
-            
-            for (const agent of agents) {
-                if (agent.statut === 'actif') {
-                    await this.planningEngine.genererPlanningTheorique(agent.code, mois, annee);
-                    totalGenerated++;
-                }
-            }
-            
-            this.showToast(`Planning généré pour ${totalGenerated} agents`, 'success');
-        } catch (error) {
-            this.showToast(`Erreur: ${error.message}`, 'error');
-        }
-    }
-
-// ========================================
-// PAGE STATISTIQUES
-// ========================================
-async showStatsPage() {
-    const content = document.getElementById('statsContent');
-    
-    content.innerHTML = `
-        <div class="page-header">
-            <h3>📊 STATISTIQUES</h3>
-            <p>Sélectionnez une option ci-dessous</p>
-        </div>
-        
-        <div class="menu-grid">
-            <div class="menu-card" onclick="sgaApp.showStatsParAgent()">
-                <h3><span>👤</span> STATS PAR AGENT</h3>
-                <p>Statistiques individuelles détaillées</p>
-            </div>
-            <div class="menu-card" onclick="sgaApp.showStatsParGroupe()">
-                <h3><span>👥</span> STATS PAR GROUPE</h3>
-                <p>Statistiques par équipe A, B, C, D, E</p>
-            </div>
-            <div class="menu-card" onclick="sgaApp.showStatsGlobales()">
-                <h3><span>🌍</span> STATS GLOBALES</h3>
-                <p>Vue d'ensemble de tous les agents</p>
-            </div>
-        </div>
-    `;
-}
-
-async showStatsParAgent() {
-    const mois = new Date().getMonth() + 1;
-    const annee = new Date().getFullYear();
-    
-    this.showModal(`
-        <div class="modal-header">
-            <h3 class="modal-title">📊 Statistiques par Agent</h3>
-            <button class="modal-close" onclick="sgaApp.closeModal()">×</button>
-        </div>
-        
-        <div class="form-group">
-            <label class="form-label">Code Agent</label>
-            <input type="text" class="form-input" id="statsAgentCode" 
-                   placeholder="Ex: CPA, CONA" required>
-        </div>
-        
-        <div class="form-row">
-            <div class="form-group">
-                <label class="form-label">Mois</label>
-                <select class="form-select" id="statsAgentMois">
-                    ${Array.from({length: 12}, (_, i) => 
-                        `<option value="${i+1}" ${i+1 === mois ? 'selected' : ''}>
-                            ${new Date(2000, i, 1).toLocaleDateString('fr-FR', {month: 'long'})}
-                        </option>`
-                    ).join('')}
-                </select>
-            </div>
-            <div class="form-group">
-                <label class="form-label">Année</label>
-                <input type="number" class="form-input" id="statsAgentAnnee" 
-                       value="${annee}" min="2020" max="2030">
-            </div>
-        </div>
-        
-        <div class="modal-actions">
-            <button class="btn btn-success" onclick="sgaApp.afficherStatsAgent()">
-                Afficher Statistiques
-            </button>
-            <button class="btn btn-secondary" onclick="sgaApp.closeModal()">
-                Annuler
-            </button>
-        </div>
-    `);
-}
-               
-    async showStatsParAgent() {
-        const mois = new Date().getMonth() + 1;
-        const annee = new Date().getFullYear();
-        
-        this.showModal(`
-            <div class="modal-header">
-                <h3 class="modal-title">📊 Statistiques par Agent</h3>
-                <button class="modal-close" onclick="sgaApp.closeModal()">×</button>
-            </div>
-            
-            <div class="form-group">
-                <label class="form-label">Code Agent</label>
-                <input type="text" class="form-input" id="statsAgentCode" 
-                       placeholder="Ex: CPA, CONA" required>
-            </div>
-            
-            <div class="form-row">
-                <div class="form-group">
-                    <label class="form-label">Mois</label>
-                    <select class="form-select" id="statsAgentMois">
-                        ${Array.from({length: 12}, (_, i) => 
-                            `<option value="${i+1}" ${i+1 === mois ? 'selected' : ''}>
-                                ${new Date(2000, i, 1).toLocaleDateString('fr-FR', {month: 'long'})}
-                            </option>`
-                        ).join('')}
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label class="form-label">Année</label>
-                    <input type="number" class="form-input" id="statsAgentAnnee" 
-                           value="${annee}" min="2020" max="2030">
-                </div>
-            </div>
-            
-            <div class="modal-actions">
-                <button class="btn btn-success" onclick="sgaApp.afficherStatsAgent()">
-                    Afficher Statistiques
-                </button>
-                <button class="btn btn-secondary" onclick="sgaApp.closeModal()">
-                    Annuler
-                </button>
-            </div>
-        `);
-    }
-
-    async afficherStatsAgent() {
-        const code = document.getElementById('statsAgentCode').value.toUpperCase();
-        const mois = parseInt(document.getElementById('statsAgentMois').value);
-        const annee = parseInt(document.getElementById('statsAgentAnnee').value);
-        
-        try {
-            const agent = await this.db.obtenirAgent(code);
-            if (!agent) {
-                this.showToast('Agent non trouvé', 'error');
-                return;
-            }
-            
-            // Utiliser la fonction voirStatsAgent avec les paramètres
-            await this.voirStatsAgent(code, mois, annee);
-        } catch (error) {
-            this.showToast(`Erreur: ${error.message}`, 'error');
-        }
-    }
-
-    async voirStatsAgent(code, mois, annee) {
+    async voirStatsAgent(code, mois = null, annee = null) {
         try {
             const agent = await this.db.obtenirAgent(code);
             if (!mois) mois = new Date().getMonth() + 1;
@@ -1651,12 +852,6 @@ async showStatsParAgent() {
                 </div>
                 
                 <div class="modal-actions">
-                    <button class="btn" onclick="sgaApp.exporterStatsAgentPDF('${code}', ${mois}, ${annee})">
-                        📤 Exporter PDF
-                    </button>
-                    <button class="btn btn-info" onclick="sgaApp.comparerMoisPrecedent('${code}', ${mois}, ${annee})">
-                        🔄 Comparer
-                    </button>
                     <button class="btn btn-secondary" onclick="sgaApp.closeModal()">
                         Fermer
                     </button>
@@ -1669,90 +864,729 @@ async showStatsParAgent() {
         }
     }
 
-    async comparerMoisPrecedent(code, mois, annee) {
+    filterAgents() {
+        const searchTerm = document.getElementById('searchAgent')?.value.toLowerCase() || '';
+        const rows = document.querySelectorAll('#agentsTableBody tr');
+        
+        rows.forEach(row => {
+            const text = row.textContent.toLowerCase();
+            row.style.display = text.includes(searchTerm) ? '' : 'none';
+        });
+    }
+
+    async exporterAgentsExcel() {
         try {
-            const agent = await this.db.obtenirAgent(code);
-            let moisPrecedent = mois - 1;
-            let anneePrecedente = annee;
+            const agents = await this.db.listerAgents();
             
-            if (moisPrecedent === 0) {
-                moisPrecedent = 12;
-                anneePrecedente = annee - 1;
-            }
+            let csvContent = "data:text/csv;charset=utf-8,";
+            csvContent += "Code;Nom;Prénom;Groupe;Date Entrée;Statut\n";
             
-            const statsActuel = await this.planningEngine.calculerStatsAgent(code, mois, annee);
-            const statsPrecedent = await this.planningEngine.calculerStatsAgent(code, moisPrecedent, anneePrecedente);
+            agents.forEach(agent => {
+                csvContent += `${agent.code};${agent.nom};${agent.prenom};${agent.groupe};${agent.date_entree || ''};${agent.statut}\n`;
+            });
+            
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", `agents-sga-${new Date().toISOString().split('T')[0]}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            this.showToast('Export CSV réussi', 'success');
+        } catch (error) {
+            this.showToast(`Erreur: ${error.message}`, 'error');
+        }
+    }
+
+    // ========================================
+    // PAGE PLANNING
+    // ========================================
+    async showPlanningPage() {
+        const content = document.getElementById('planningContent');
+        
+        content.innerHTML = `
+            <div class="page-header">
+                <h3>📅 GESTION DU PLANNING</h3>
+                <p>Sélectionnez une option ci-dessous</p>
+            </div>
+            
+            <div class="menu-grid">
+                <div class="menu-card" onclick="sgaApp.showPlanningGlobal()">
+                    <h3><span>🌍</span> PLANNING MENSUEL GLOBAL</h3>
+                    <p>Vue complète de tous les agents</p>
+                </div>
+                <div class="menu-card" onclick="sgaApp.showPlanningParAgent()">
+                    <h3><span>👤</span> PLANNING MENSUEL AGENT</h3>
+                    <p>Planning individuel par agent</p>
+                </div>
+                <div class="menu-card" onclick="sgaApp.showPlanningParGroupe()">
+                    <h3><span>👥</span> PLANNING PAR GROUPE</h3>
+                    <p>Planning par équipe A, B, C, D, E</p>
+                </div>
+                <div class="menu-card" onclick="sgaApp.genererPlanningMensuel()">
+                    <h3><span>🎯</span> GÉNÉRER PLANNING</h3>
+                    <p>Générer planning théorique du mois</p>
+                </div>
+            </div>
+        `;
+    }
+
+    async showPlanningGlobal() {
+        const mois = new Date().getMonth() + 1;
+        const annee = new Date().getFullYear();
+        
+        this.showModal(`
+            <div class="modal-header">
+                <h3 class="modal-title">🌍 Planning Mensuel Global</h3>
+                <button class="modal-close" onclick="sgaApp.closeModal()">×</button>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">Mois</label>
+                <select class="form-select" id="planningMois">
+                    ${Array.from({length: 12}, (_, i) => 
+                        `<option value="${i+1}" ${i+1 === mois ? 'selected' : ''}>
+                            ${new Date(2000, i, 1).toLocaleDateString('fr-FR', {month: 'long'})}
+                        </option>`
+                    ).join('')}
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">Année</label>
+                <input type="number" class="form-input" id="planningAnnee" 
+                       value="${annee}" min="2020" max="2030">
+            </div>
+            
+            <div class="modal-actions">
+                <button class="btn btn-success" onclick="sgaApp.afficherPlanningGlobal()">
+                    Afficher Planning
+                </button>
+                <button class="btn btn-secondary" onclick="sgaApp.closeModal()">
+                    Annuler
+                </button>
+            </div>
+        `);
+    }
+
+    async afficherPlanningGlobal() {
+        const mois = parseInt(document.getElementById('planningMois').value);
+        const annee = parseInt(document.getElementById('planningAnnee').value);
+        
+        try {
+            const agents = await this.db.obtenirAgentsActifs();
+            const joursDansMois = new Date(annee, mois, 0).getDate();
             
             let html = `
                 <div class="modal-header">
-                    <h3 class="modal-title">🔄 Comparaison ${agent.code}</h3>
+                    <h3 class="modal-title">Planning Global - ${mois}/${annee}</h3>
                     <button class="modal-close" onclick="sgaApp.closeModal()">×</button>
                 </div>
                 
-                <div class="comparison-info">
-                    <p><strong>${agent.nom} ${agent.prenom}</strong> | Groupe: ${agent.groupe}</p>
-                    <p>Comparaison: ${moisPrecedent}/${anneePrecedente} ↔ ${mois}/${annee}</p>
+                <div class="planning-info">
+                    <p><strong>${agents.length} agents actifs</strong> | ${joursDansMois} jours</p>
                 </div>
                 
-                <div class="comparison-table">
+                <div class="table-container">
                     <table class="table">
                         <thead>
                             <tr>
-                                <th>Type</th>
-                                <th>Mois ${moisPrecedent}</th>
-                                <th>Mois ${mois}</th>
-                                <th>Différence</th>
+                                <th>Code</th>
+                                <th>Nom</th>
+                                <th>Groupe</th>
+                                ${Array.from({length: joursDansMois}, (_, i) => 
+                                    `<th title="${i+1}/${mois}">J${i+1}</th>`
+                                ).join('')}
                             </tr>
                         </thead>
                         <tbody>
             `;
             
-            const types = ['1', '2', '3', 'R', 'C', 'M', 'A'];
-            const labels = {
-                '1': 'Matin',
-                '2': 'Après-midi',
-                '3': 'Nuit',
-                'R': 'Repos',
-                'C': 'Congés',
-                'M': 'Maladie',
-                'A': 'Absences'
-            };
-            
-            types.forEach(type => {
-                const actuel = statsActuel.stats[type] || 0;
-                const precedent = statsPrecedent.stats[type] || 0;
-                const difference = actuel - precedent;
-                let diffClass = '';
-                if (difference > 0) diffClass = 'positive';
-                if (difference < 0) diffClass = 'negative';
+            for (const agent of agents) {
+                const planning = await this.planningEngine.genererPlanningTheorique(agent.code, mois, annee);
                 
                 html += `
                     <tr>
-                        <td>${labels[type]}</td>
-                        <td>${precedent}</td>
-                        <td>${actuel}</td>
-                        <td class="${diffClass}">${difference > 0 ? '+' : ''}${difference}</td>
+                        <td><strong>${agent.code}</strong></td>
+                        <td>${agent.nom}</td>
+                        <td><span class="badge badge-groupe-${agent.groupe}">${agent.groupe}</span></td>
+                `;
+                
+                planning.forEach(jour => {
+                    let className = '';
+                    if (jour.est_dimanche) className = 'dimanche';
+                    if (jour.ferie) className = 'ferie';
+                    
+                    html += `
+                        <td class="${className}">
+                            <span class="badge badge-shift-${jour.shift}">${jour.shift}</span>
+                        </td>
+                    `;
+                });
+                
+                html += `</tr>`;
+            }
+            
+            html += `
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="modal-actions">
+                    <button class="btn btn-secondary" onclick="sgaApp.closeModal()">
+                        Fermer
+                    </button>
+                </div>
+            `;
+            
+            this.showModal(html);
+        } catch (error) {
+            this.showToast(`Erreur: ${error.message}`, 'error');
+        }
+    }
+
+    async showPlanningParGroupe() {
+        const mois = new Date().getMonth() + 1;
+        const annee = new Date().getFullYear();
+        
+        this.showModal(`
+            <div class="modal-header">
+                <h3 class="modal-title">👥 Planning par Groupe</h3>
+                <button class="modal-close" onclick="sgaApp.closeModal()">×</button>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">Groupe</label>
+                <select class="form-select" id="planningGroupe">
+                    <option value="A">Groupe A</option>
+                    <option value="B">Groupe B</option>
+                    <option value="C">Groupe C</option>
+                    <option value="D">Groupe D</option>
+                    <option value="E">Groupe E</option>
+                </select>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">Mois</label>
+                    <select class="form-select" id="planningGroupeMois">
+                        ${Array.from({length: 12}, (_, i) => 
+                            `<option value="${i+1}" ${i+1 === mois ? 'selected' : ''}>
+                                ${new Date(2000, i, 1).toLocaleDateString('fr-FR', {month: 'long'})}
+                            </option>`
+                        ).join('')}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Année</label>
+                    <input type="number" class="form-input" id="planningGroupeAnnee" 
+                           value="${annee}" min="2020" max="2030">
+                </div>
+            </div>
+            
+            <div class="modal-actions">
+                <button class="btn btn-success" onclick="sgaApp.afficherPlanningGroupe()">
+                    Afficher Planning
+                </button>
+                <button class="btn btn-secondary" onclick="sgaApp.closeModal()">
+                    Annuler
+                </button>
+            </div>
+        `);
+    }
+
+    async afficherPlanningGroupe() {
+        const groupe = document.getElementById('planningGroupe').value;
+        const mois = parseInt(document.getElementById('planningGroupeMois').value);
+        const annee = parseInt(document.getElementById('planningGroupeAnnee').value);
+        
+        try {
+            const planningGroupe = await this.planningEngine.genererPlanningGroupe(groupe, mois, annee);
+            const joursDansMois = new Date(annee, mois, 0).getDate();
+            
+            let html = `
+                <div class="modal-header">
+                    <h3 class="modal-title">Planning Groupe ${groupe} - ${mois}/${annee}</h3>
+                    <button class="modal-close" onclick="sgaApp.closeModal()">×</button>
+                </div>
+                
+                <div class="planning-info">
+                    <p><strong>${planningGroupe.length} agents</strong> | ${joursDansMois} jours</p>
+                </div>
+                
+                <div class="table-container">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Code</th>
+                                <th>Nom</th>
+                                ${Array.from({length: joursDansMois}, (_, i) => 
+                                    `<th title="${i+1}/${mois}">J${i+1}</th>`
+                                ).join('')}
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+            
+            for (const item of planningGroupe) {
+                const agent = item.agent;
+                
+                html += `
+                    <tr>
+                        <td><strong>${agent.code}</strong></td>
+                        <td>${agent.nom}</td>
+                `;
+                
+                item.planning.forEach(jour => {
+                    let className = '';
+                    if (jour.est_dimanche) className = 'dimanche';
+                    if (jour.ferie) className = 'ferie';
+                    
+                    html += `
+                        <td class="${className}">
+                            <span class="badge badge-shift-${jour.shift}">${jour.shift}</span>
+                        </td>
+                    `;
+                });
+                
+                html += `</tr>`;
+            }
+            
+            // Calculer les stats du groupe
+            const statsGroupe = await this.planningEngine.calculerJoursTravaillesGroupe(groupe, mois, annee);
+            
+            html += `
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="groupe-stats">
+                    <h4>Statistiques du Groupe ${groupe}</h4>
+                    <p><strong>Total jours opérationnels: ${statsGroupe}</strong></p>
+                    <p>Moyenne par agent: ${planningGroupe.length > 0 ? (statsGroupe / planningGroupe.length).toFixed(1) : 0} jours</p>
+                </div>
+                
+                <div class="modal-actions">
+                    <button class="btn btn-secondary" onclick="sgaApp.closeModal()">
+                        Fermer
+                    </button>
+                </div>
+            `;
+            
+            this.showModal(html);
+        } catch (error) {
+            this.showToast(`Erreur: ${error.message}`, 'error');
+        }
+    }
+
+    async genererPlanningMensuel() {
+        const mois = new Date().getMonth() + 1;
+        const annee = new Date().getFullYear();
+        
+        try {
+            const agents = await this.db.obtenirAgentsActifs();
+            let totalGenerated = 0;
+            
+            for (const agent of agents) {
+                await this.planningEngine.genererPlanningTheorique(agent.code, mois, annee);
+                totalGenerated++;
+            }
+            
+            this.showToast(`Planning généré pour ${totalGenerated} agents`, 'success');
+        } catch (error) {
+            this.showToast(`Erreur: ${error.message}`, 'error');
+        }
+    }
+
+    async showPlanningParAgent() {
+        const mois = new Date().getMonth() + 1;
+        const annee = new Date().getFullYear();
+        
+        this.showModal(`
+            <div class="modal-header">
+                <h3 class="modal-title">👤 Planning par Agent</h3>
+                <button class="modal-close" onclick="sgaApp.closeModal()">×</button>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">Code Agent</label>
+                <input type="text" class="form-input" id="planningAgentCode" 
+                       placeholder="Ex: CPA, CONA" required>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">Mois</label>
+                    <select class="form-select" id="planningAgentMois">
+                        ${Array.from({length: 12}, (_, i) => 
+                            `<option value="${i+1}" ${i+1 === mois ? 'selected' : ''}>
+                                ${new Date(2000, i, 1).toLocaleDateString('fr-FR', {month: 'long'})}
+                            </option>`
+                        ).join('')}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Année</label>
+                    <input type="number" class="form-input" id="planningAgentAnnee" 
+                           value="${annee}" min="2020" max="2030">
+                </div>
+            </div>
+            
+            <div class="modal-actions">
+                <button class="btn btn-success" onclick="sgaApp.afficherPlanningAgent()">
+                    Afficher Planning
+                </button>
+                <button class="btn btn-secondary" onclick="sgaApp.closeModal()">
+                    Annuler
+                </button>
+            </div>
+        `);
+    }
+
+    async afficherPlanningAgent() {
+        const code = document.getElementById('planningAgentCode')?.value?.toUpperCase();
+        const mois = parseInt(document.getElementById('planningAgentMois')?.value);
+        const annee = parseInt(document.getElementById('planningAgentAnnee')?.value);
+        
+        if (!code) {
+            this.showToast('Veuillez entrer un code agent', 'error');
+            return;
+        }
+        
+        await this.voirPlanningAgent(code, mois, annee);
+    }
+
+    // ========================================
+    // PAGE STATISTIQUES
+    // ========================================
+    async showStatsPage() {
+        const content = document.getElementById('statsContent');
+        
+        content.innerHTML = `
+            <div class="page-header">
+                <h3>📊 STATISTIQUES</h3>
+                <p>Sélectionnez une option ci-dessous</p>
+            </div>
+            
+            <div class="menu-grid">
+                <div class="menu-card" onclick="sgaApp.showStatsParAgent()">
+                    <h3><span>👤</span> STATS PAR AGENT</h3>
+                    <p>Statistiques individuelles détaillées</p>
+                </div>
+                <div class="menu-card" onclick="sgaApp.showStatsParGroupe()">
+                    <h3><span>👥</span> STATS PAR GROUPE</h3>
+                    <p>Statistiques par équipe A, B, C, D, E</p>
+                </div>
+                <div class="menu-card" onclick="sgaApp.showStatsGlobales()">
+                    <h3><span>🌍</span> STATS GLOBALES</h3>
+                    <p>Vue d'ensemble de tous les agents</p>
+                </div>
+            </div>
+        `;
+    }
+
+    async showStatsParAgent() {
+        const mois = new Date().getMonth() + 1;
+        const annee = new Date().getFullYear();
+        
+        this.showModal(`
+            <div class="modal-header">
+                <h3 class="modal-title">📊 Statistiques par Agent</h3>
+                <button class="modal-close" onclick="sgaApp.closeModal()">×</button>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">Code Agent</label>
+                <input type="text" class="form-input" id="statsAgentCode" 
+                       placeholder="Ex: CPA, CONA" required>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">Mois</label>
+                    <select class="form-select" id="statsAgentMois">
+                        ${Array.from({length: 12}, (_, i) => 
+                            `<option value="${i+1}" ${i+1 === mois ? 'selected' : ''}>
+                                ${new Date(2000, i, 1).toLocaleDateString('fr-FR', {month: 'long'})}
+                            </option>`
+                        ).join('')}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Année</label>
+                    <input type="number" class="form-input" id="statsAgentAnnee" 
+                           value="${annee}" min="2020" max="2030">
+                </div>
+            </div>
+            
+            <div class="modal-actions">
+                <button class="btn btn-success" onclick="sgaApp.afficherStatsAgent()">
+                    Afficher Statistiques
+                </button>
+                <button class="btn btn-secondary" onclick="sgaApp.closeModal()">
+                    Annuler
+                </button>
+            </div>
+        `);
+    }
+
+    async afficherStatsAgent() {
+        const code = document.getElementById('statsAgentCode')?.value?.toUpperCase();
+        const mois = parseInt(document.getElementById('statsAgentMois')?.value);
+        const annee = parseInt(document.getElementById('statsAgentAnnee')?.value);
+        
+        if (!code) {
+            this.showToast('Veuillez entrer un code agent', 'error');
+            return;
+        }
+        
+        await this.voirStatsAgent(code, mois, annee);
+    }
+
+    async showStatsParGroupe() {
+        const mois = new Date().getMonth() + 1;
+        const annee = new Date().getFullYear();
+        
+        this.showModal(`
+            <div class="modal-header">
+                <h3 class="modal-title">📊 Statistiques par Groupe</h3>
+                <button class="modal-close" onclick="sgaApp.closeModal()">×</button>
+            </div>
+            
+            <div class="form-group">
+                <label class="form-label">Groupe</label>
+                <select class="form-select" id="statsGroupe">
+                    <option value="A">Groupe A</option>
+                    <option value="B">Groupe B</option>
+                    <option value="C">Groupe C</option>
+                    <option value="D">Groupe D</option>
+                    <option value="E">Groupe E</option>
+                </select>
+            </div>
+            
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">Mois</label>
+                    <select class="form-select" id="statsGroupeMois">
+                        ${Array.from({length: 12}, (_, i) => 
+                            `<option value="${i+1}" ${i+1 === mois ? 'selected' : ''}>
+                                ${new Date(2000, i, 1).toLocaleDateString('fr-FR', {month: 'long'})}
+                            </option>`
+                        ).join('')}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Année</label>
+                    <input type="number" class="form-input" id="statsGroupeAnnee" 
+                           value="${annee}" min="2020" max="2030">
+                </div>
+            </div>
+            
+            <div class="modal-actions">
+                <button class="btn btn-success" onclick="sgaApp.afficherStatsGroupe()">
+                    Afficher Statistiques
+                </button>
+                <button class="btn btn-secondary" onclick="sgaApp.closeModal()">
+                    Annuler
+                </button>
+            </div>
+        `);
+    }
+
+    async afficherStatsGroupe() {
+        const groupe = document.getElementById('statsGroupe')?.value;
+        const mois = parseInt(document.getElementById('statsGroupeMois')?.value);
+        const annee = parseInt(document.getElementById('statsGroupeAnnee')?.value);
+        
+        if (!groupe) {
+            this.showToast('Veuillez sélectionner un groupe', 'error');
+            return;
+        }
+        
+        await this.afficherStatsGroupePopup(groupe, mois, annee);
+    }
+
+    async afficherStatsGroupePopup(groupe, mois, annee) {
+        try {
+            const agents = await this.db.obtenirAgentsParGroupe(groupe);
+            const agentsActifs = agents.filter(a => a.statut === 'actif');
+            
+            let totalShifts1 = 0;
+            let totalShifts2 = 0;
+            let totalShifts3 = 0;
+            let totalOperationnels = 0;
+            
+            const agentsStats = [];
+            
+            for (const agent of agentsActifs) {
+                const stats = await this.planningEngine.calculerStatsAgent(agent.code, mois, annee);
+                
+                totalShifts1 += stats.stats['1'];
+                totalShifts2 += stats.stats['2'];
+                totalShifts3 += stats.stats['3'];
+                totalOperationnels += stats.totalOperationnels;
+                
+                agentsStats.push({
+                    code: agent.code,
+                    nom: `${agent.nom} ${agent.prenom}`,
+                    shifts1: stats.stats['1'],
+                    shifts2: stats.stats['2'],
+                    shifts3: stats.stats['3'],
+                    total: stats.totalOperationnels
+                });
+            }
+            
+            // Trier par total décroissant
+            agentsStats.sort((a, b) => b.total - a.total);
+            
+            let html = `
+                <div class="modal-header">
+                    <h3 class="modal-title">📊 Statistiques Groupe ${groupe}</h3>
+                    <button class="modal-close" onclick="sgaApp.closeModal()">×</button>
+                </div>
+                
+                <div class="groupe-info">
+                    <p>Période: ${mois}/${annee} | Effectif: ${agentsActifs.length} agents</p>
+                </div>
+                
+                <div class="stats-resume">
+                    <h4>Résumé du Groupe</h4>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-value">${totalShifts1}</div>
+                            <div class="stat-label">Shifts Matin</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">${totalShifts2}</div>
+                            <div class="stat-label">Shifts Après-midi</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-value">${totalShifts3}</div>
+                            <div class="stat-label">Shifts Nuit</div>
+                        </div>
+                        <div class="stat-card total">
+                            <div class="stat-value">${totalOperationnels}</div>
+                            <div class="stat-label">TOTAL</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="classement-groupe">
+                    <h4>Classement par Total</h4>
+                    <div class="table-container">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Rang</th>
+                                    <th>Code</th>
+                                    <th>Nom</th>
+                                    <th>TOTAL</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+            `;
+            
+            agentsStats.forEach((agent, index) => {
+                let rangText = `${index + 1}.`;
+                let rangClass = '';
+                
+                if (index === 0) {
+                    rangText = '🥇 1.';
+                    rangClass = 'gold';
+                } else if (index === 1) {
+                    rangText = '🥈 2.';
+                    rangClass = 'silver';
+                } else if (index === 2) {
+                    rangText = '🥉 3.';
+                    rangClass = 'bronze';
+                }
+                
+                html += `
+                    <tr>
+                        <td class="${rangClass}"><strong>${rangText}</strong></td>
+                        <td><strong>${agent.code}</strong></td>
+                        <td>${agent.nom}</td>
+                        <td><strong class="total-value">${agent.total}</strong></td>
                     </tr>
                 `;
             });
             
             html += `
-                            <tr class="total-row">
-                                <td><strong>Total Opérationnel</strong></td>
-                                <td><strong>${statsPrecedent.totalOperationnels}</strong></td>
-                                <td><strong>${statsActuel.totalOperationnels}</strong></td>
-                                <td class="${statsActuel.totalOperationnels - statsPrecedent.totalOperationnels > 0 ? 'positive' : 'negative'}">
-                                    ${statsActuel.totalOperationnels - statsPrecedent.totalOperationnels > 0 ? '+' : ''}
-                                    ${statsActuel.totalOperationnels - statsPrecedent.totalOperationnels}
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
                 
-                <div class="comparison-summary">
-                    <p>Taux présence actuel: ${((statsActuel.totalJoursTravailles / statsActuel.totalJours) * 100).toFixed(1)}%</p>
-                    <p>Taux présence précédent: ${((statsPrecedent.totalJoursTravailles / statsPrecedent.totalJours) * 100).toFixed(1)}%</p>
+                <div class="modal-actions">
+                    <button class="btn btn-secondary" onclick="sgaApp.closeModal()">
+                        Fermer
+                    </button>
+                </div>
+            `;
+            
+            this.showModal(html);
+        } catch (error) {
+            this.showToast(`Erreur: ${error.message}`, 'error');
+        }
+    }
+
+    async showStatsGlobales() {
+        try {
+            const stats = await this.db.obtenirStatsGlobales();
+            const agents = await this.db.listerAgents();
+            
+            let html = `
+                <div class="modal-header">
+                    <h3 class="modal-title">🌍 Statistiques Globales</h3>
+                    <button class="modal-close" onclick="sgaApp.closeModal()">×</button>
+                </div>
+                
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value">${stats.totalAgents}</div>
+                        <div class="stat-label">Total Agents</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${stats.totalRadios || 0}</div>
+                        <div class="stat-label">Radios</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${stats.totalCongesActifs || 0}</div>
+                        <div class="stat-label">Congés actifs</div>
+                    </div>
+                </div>
+                
+                <h4>Répartition par groupe</h4>
+                <table class="table">
+                    <thead>
+                        <tr>
+                            <th>Groupe</th>
+                            <th>Nombre d'agents</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            
+            const groupes = ['A', 'B', 'C', 'D', 'E'];
+            groupes.forEach(groupe => {
+                const count = agents.filter(a => a.groupe === groupe).length;
+                html += `
+                    <tr>
+                        <td><span class="badge badge-groupe-${groupe}">${groupe}</span></td>
+                        <td>${count}</td>
+                    </tr>
+                `;
+            });
+            
+            html += `
+                    </tbody>
+                </table>
+                
+                <div class="modal-actions">
+                    <button class="btn btn-secondary" onclick="sgaApp.closeModal()">
+                        Fermer
+                    </button>
                 </div>
             `;
             
@@ -1763,7 +1597,7 @@ async showStatsParAgent() {
     }
 
     // ========================================
-    // PAGE GESTION DES RADIOS
+    // PAGE RADIOS
     // ========================================
     async showRadiosPage() {
         const content = document.getElementById('radiosContent');
@@ -1775,14 +1609,11 @@ async showStatsParAgent() {
             </div>
             
             <div class="page-actions">
-                <button class="btn btn-success" onclick="sgaApp.showAttribuerRadioForm()">
-                    📱 Attribuer Radio
-                </button>
-                <button class="btn btn-info" onclick="sgaApp.showAjouterRadioForm()">
+                <button class="btn btn-success" onclick="sgaApp.showAjouterRadioForm()">
                     ➕ Ajouter Radio
                 </button>
-                <button class="btn btn-warning" onclick="sgaApp.showRetourRadioForm()">
-                    ↩️ Retour Radio
+                <button class="btn btn-info" onclick="sgaApp.showAttribuerRadioForm()">
+                    📱 Attribuer Radio
                 </button>
             </div>
             
@@ -1799,22 +1630,6 @@ async showStatsParAgent() {
                     <div class="stat-value" id="radiosDisponibles">0</div>
                     <div class="stat-label">Disponibles</div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="radiosEnPanne">0</div>
-                    <div class="stat-label">En panne</div>
-                </div>
-            </div>
-            
-            <div class="tabs">
-                <button class="tab-btn active" onclick="sgaApp.switchRadioTab('attribuees')">
-                    📋 Attribuées
-                </button>
-                <button class="tab-btn" onclick="sgaApp.switchRadioTab('disponibles')">
-                    📦 Disponibles
-                </button>
-                <button class="tab-btn" onclick="sgaApp.switchRadioTab('historique')">
-                    📊 Historique
-                </button>
             </div>
             
             <div class="table-container">
@@ -1839,65 +1654,63 @@ async showStatsParAgent() {
         await this.updateRadiosStats();
     }
 
-    async loadRadiosList(tab = 'attribuees') {
+    async loadRadiosList() {
         const tbody = document.getElementById('radiosTableBody');
         
         try {
-            let radios = [];
-            
-            if (tab === 'attribuees') {
-                radios = await this.db.obtenirRadiosAttribuees();
-            } else if (tab === 'disponibles') {
-                radios = await this.db.obtenirRadiosDisponibles();
-            } else if (tab === 'historique') {
-                radios = await this.db.obtenirHistoriqueRadios();
-            }
+            const radios = await this.db.obtenirRadiosAttribuees();
             
             if (radios.length === 0) {
                 tbody.innerHTML = `
                     <tr>
                         <td colspan="5" class="empty">
-                            <p>Aucune radio ${tab === 'attribuees' ? 'attribuée' : tab === 'disponibles' ? 'disponible' : 'dans l\'historique'}</p>
+                            <p>Aucune radio attribuée</p>
                         </td>
                     </tr>
                 `;
                 return;
             }
             
-            tbody.innerHTML = radios.map(radio => `
-                <tr>
-                    <td><strong>${radio.numero}</strong></td>
-                    <td>${radio.agent_nom || 'Non attribuée'}</td>
-                    <td>${radio.date_attribution || '-'}</td>
-                    <td>
-                        <span class="badge ${radio.statut === 'attribuee' ? 'badge-shift-1' : 
-                                          radio.statut === 'disponible' ? 'badge-shift-2' :
-                                          'badge-shift-A'}">
-                            ${radio.statut === 'attribuee' ? 'Attribuée' : 
-                              radio.statut === 'disponible' ? 'Disponible' : 'En panne'}
-                        </span>
-                    </td>
-                    <td>
-                        <div class="action-buttons">
-                            ${radio.statut === 'attribuee' ? `
-                                <button class="btn-icon" onclick="sgaApp.showRetourRadioForm('${radio.numero}', '${radio.agent_code}')" 
-                                        title="Retour radio">
-                                    ↩️
-                                </button>
-                            ` : radio.statut === 'disponible' ? `
-                                <button class="btn-icon" onclick="sgaApp.showAttribuerRadioForm('${radio.numero}')" 
-                                        title="Attribuer">
-                                    📱
-                                </button>
-                            ` : ''}
-                            <button class="btn-icon" onclick="sgaApp.modifierStatutRadio('${radio.numero}')" 
-                                    title="Modifier statut">
-                                ✏️
-                            </button>
-                        </div>
-                    </td>
-                </tr>
-            `).join('');
+            tbody.innerHTML = await Promise.all(radios.map(async (radio) => {
+                let agentInfo = 'Non attribuée';
+                if (radio.agent_code) {
+                    const agent = await this.db.obtenirAgent(radio.agent_code);
+                    if (agent) {
+                        agentInfo = `${agent.nom} ${agent.prenom}`;
+                    }
+                }
+                
+                return `
+                    <tr>
+                        <td><strong>${radio.numero}</strong></td>
+                        <td>${agentInfo}</td>
+                        <td>${radio.date_attribution || '-'}</td>
+                        <td>
+                            <span class="badge ${radio.statut === 'attribuee' ? 'badge-shift-1' : 
+                                              radio.statut === 'disponible' ? 'badge-shift-2' :
+                                              'badge-shift-A'}">
+                                ${radio.statut === 'attribuee' ? 'Attribuée' : 
+                                  radio.statut === 'disponible' ? 'Disponible' : 'En panne'}
+                            </span>
+                        </td>
+                        <td>
+                            <div class="action-buttons">
+                                ${radio.statut === 'attribuee' ? `
+                                    <button class="btn-icon" onclick="sgaApp.showRetourRadioForm('${radio.numero}', '${radio.agent_code}')" 
+                                            title="Retour radio">
+                                        ↩️
+                                    </button>
+                                ` : radio.statut === 'disponible' ? `
+                                    <button class="btn-icon" onclick="sgaApp.showAttribuerRadioForm('${radio.numero}')" 
+                                            title="Attribuer">
+                                        📱
+                                    </button>
+                                ` : ''}
+                            </div>
+                        </td>
+                    </tr>
+                `;
+            }));
             
         } catch (error) {
             tbody.innerHTML = `
@@ -1914,24 +1727,64 @@ async showStatsParAgent() {
         try {
             const stats = await this.db.obtenirStatsRadios();
             
-            document.getElementById('totalRadios').textContent = stats.total;
-            document.getElementById('radiosAttribuees').textContent = stats.attribuees;
-            document.getElementById('radiosDisponibles').textContent = stats.disponibles;
-            document.getElementById('radiosEnPanne').textContent = stats.en_panne;
+            const totalRadios = document.getElementById('totalRadios');
+            const radiosAttribuees = document.getElementById('radiosAttribuees');
+            const radiosDisponibles = document.getElementById('radiosDisponibles');
+            
+            if (totalRadios) totalRadios.textContent = stats.total || 0;
+            if (radiosAttribuees) radiosAttribuees.textContent = stats.attribuees || 0;
+            if (radiosDisponibles) radiosDisponibles.textContent = stats.disponibles || 0;
         } catch (error) {
             console.error('Erreur stats radios:', error);
         }
     }
 
-    switchRadioTab(tab) {
-        // Mettre à jour les boutons tabs
-        document.querySelectorAll('.tab-btn').forEach(btn => {
-            btn.classList.remove('active');
-        });
-        event.target.classList.add('active');
+    showAjouterRadioForm() {
+        this.showModal(`
+            <div class="modal-header">
+                <h3 class="modal-title">➕ Ajouter Radio</h3>
+                <button class="modal-close" onclick="sgaApp.closeModal()">×</button>
+            </div>
+            
+            <form id="formAjouterRadio" onsubmit="return sgaApp.validerAjoutRadio(event)">
+                <div class="form-group">
+                    <label class="form-label">Numéro Radio*</label>
+                    <input type="text" class="form-input" name="numero" 
+                           placeholder="Ex: RADIO-001" required>
+                </div>
+                
+                <div class="form-group">
+                    <label class="form-label">Modèle</label>
+                    <input type="text" class="form-input" name="modele" 
+                           placeholder="Ex: Standard" value="Standard">
+                </div>
+                
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-success">Ajouter</button>
+                    <button type="button" class="btn btn-secondary" onclick="sgaApp.closeModal()">
+                        Annuler
+                    </button>
+                </div>
+            </form>
+        `);
+    }
+
+    async validerAjoutRadio(event) {
+        event.preventDefault();
+        const formData = new FormData(event.target);
         
-        // Charger la liste correspondante
-        this.loadRadiosList(tab);
+        const numero = formData.get('numero').toUpperCase();
+        const modele = formData.get('modele') || 'Standard';
+        
+        try {
+            await this.db.ajouterRadio(numero, modele);
+            this.closeModal();
+            this.showToast(`Radio ${numero} ajoutée`, 'success');
+            await this.loadRadiosList();
+            await this.updateRadiosStats();
+        } catch (error) {
+            this.showToast(`Erreur: ${error.message}`, 'error');
+        }
     }
 
     showAttribuerRadioForm(numeroRadio = '') {
@@ -1949,7 +1802,7 @@ async showStatsParAgent() {
                 </div>
                 
                 <div class="form-group">
-                    <label class="form-label">Code Agent</label>
+                    <label class="form-label">Code Agent*</label>
                     <input type="text" class="form-input" name="code_agent" 
                            placeholder="Ex: CPA, CONA" required>
                 </div>
@@ -1985,22 +1838,12 @@ async showStatsParAgent() {
                 throw new Error('Agent non trouvé');
             }
             
-            // Vérifier si la radio existe et est disponible
-            const radio = await this.db.obtenirRadio(numero);
-            if (!radio) {
-                throw new Error('Radio non trouvée');
-            }
-            
-            if (radio.statut !== 'disponible') {
-                throw new Error('Radio non disponible');
-            }
-            
             // Attribuer la radio
             await this.db.attribuerRadio(numero, code_agent, date_attribution);
             
             this.closeModal();
             this.showToast(`Radio ${numero} attribuée à ${code_agent}`, 'success');
-            await this.loadRadiosList('attribuees');
+            await this.loadRadiosList();
             await this.updateRadiosStats();
         } catch (error) {
             this.showToast(`Erreur: ${error.message}`, 'error');
@@ -2032,7 +1875,6 @@ async showStatsParAgent() {
                     <select class="form-select" name="statut" required>
                         <option value="disponible">Disponible</option>
                         <option value="en_panne">En panne</option>
-                        <option value="maintenance">Maintenance</option>
                     </select>
                 </div>
                 
@@ -2062,18 +1904,12 @@ async showStatsParAgent() {
         const remarques = formData.get('remarques');
         
         try {
-            // Vérifier si la radio est bien attribuée à cet agent
-            const radio = await this.db.obtenirRadio(numero);
-            if (!radio || radio.agent_code !== code_agent) {
-                throw new Error('Cette radio n\'est pas attribuée à cet agent');
-            }
-            
             // Enregistrer le retour
             await this.db.retournerRadio(numero, statut, remarques);
             
             this.closeModal();
             this.showToast(`Radio ${numero} retournée`, 'success');
-            await this.loadRadiosList('attribuees');
+            await this.loadRadiosList();
             await this.updateRadiosStats();
         } catch (error) {
             this.showToast(`Erreur: ${error.message}`, 'error');
@@ -2093,10 +1929,7 @@ async showStatsParAgent() {
             </div>
             
             <div class="page-actions">
-                <button class="btn btn-success" onclick="sgaApp.showAjouterCodePaniqueForm()">
-                    ➕ Ajouter Code
-                </button>
-                <button class="btn btn-info" onclick="sgaApp.genererCodesPanique()">
+                <button class="btn btn-success" onclick="sgaApp.genererCodesPanique()">
                     🎯 Générer Codes
                 </button>
                 <button class="btn btn-warning" onclick="sgaApp.reinitialiserCodesPanique()">
@@ -2111,8 +1944,6 @@ async showStatsParAgent() {
             <div class="instructions">
                 <h4>Instructions:</h4>
                 <p>• Cliquez sur un code pour le copier</p>
-                <p>• Les codes expirés sont en rouge</p>
-                <p>• Les codes utilisés sont en gris</p>
                 <p>• Nouvelle série générée automatiquement chaque mois</p>
             </div>
         `;
@@ -2138,7 +1969,7 @@ async showStatsParAgent() {
                 return;
             }
             
-            grid.innerHTML = codes.map(code => {
+            grid.innerHTML = codes.slice(0, 20).map(code => {
                 let className = 'code-panique';
                 let statusText = '';
                 
@@ -2158,22 +1989,7 @@ async showStatsParAgent() {
                         <div class="code-number">${code.numero}</div>
                         <div class="code-value">${code.code}</div>
                         <div class="code-info">
-                            <span>Agent: ${code.agent_nom || 'Non attribué'}</span>
                             <span>${statusText}</span>
-                        </div>
-                        <div class="code-actions">
-                            <button class="btn-icon" onclick="event.stopPropagation(); sgaApp.attribuerCodePanique('${code.code}')" 
-                                    title="Attribuer">
-                                👤
-                            </button>
-                            <button class="btn-icon" onclick="event.stopPropagation(); sgaApp.marquerCodeUtilise('${code.code}')" 
-                                    title="Marquer utilisé">
-                                ✅
-                            </button>
-                            <button class="btn-icon" onclick="event.stopPropagation(); sgaApp.regenererCodePanique('${code.code}')" 
-                                    title="Régénérer">
-                        🔄
-                            </button>
                         </div>
                     </div>
                 `;
@@ -2189,11 +2005,9 @@ async showStatsParAgent() {
 
     async genererCodesPanique() {
         try {
-            const confirmation = confirm('Générer une nouvelle série de codes panique ?\n\nLes codes existants seront archivés.');
-            
-            if (confirmation) {
+            if (confirm('Générer une nouvelle série de codes panique ?')) {
                 await this.db.genererCodesPanique();
-                this.showToast('Nouvelle série de codes générée', 'success');
+                this.showToast('Codes panique générés', 'success');
                 await this.loadCodesPanique();
             }
         } catch (error) {
@@ -2201,67 +2015,11 @@ async showStatsParAgent() {
         }
     }
 
-    async attribuerCodePanique(code) {
-        this.showModal(`
-            <div class="modal-header">
-                <h3 class="modal-title">👤 Attribuer Code Panique</h3>
-                <button class="modal-close" onclick="sgaApp.closeModal()">×</button>
-            </div>
-            
-            <form id="formAttribuerCode" onsubmit="return sgaApp.validerAttributionCode(event, '${code}')">
-                <div class="form-group">
-                    <label class="form-label">Code Agent</label>
-                    <input type="text" class="form-input" name="code_agent" 
-                           placeholder="Ex: CPA, CONA" required>
-                </div>
-                
-                <div class="form-group">
-                    <label class="form-label">Date d'expiration</label>
-                    <input type="date" class="form-input" name="date_expiration" 
-                           value="${new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]}" 
-                           min="${new Date().toISOString().split('T')[0]}">
-                </div>
-                
-                <div class="modal-actions">
-                    <button type="submit" class="btn btn-success">Attribuer</button>
-                    <button type="button" class="btn btn-secondary" onclick="sgaApp.closeModal()">
-                        Annuler
-                    </button>
-                </div>
-            </form>
-        `);
-    }
-
-    async validerAttributionCode(event, code) {
-        event.preventDefault();
-        const formData = new FormData(event.target);
-        
-        const code_agent = formData.get('code_agent').toUpperCase();
-        const date_expiration = formData.get('date_expiration');
-        
-        try {
-            // Vérifier si l'agent existe
-            const agent = await this.db.obtenirAgent(code_agent);
-            if (!agent) {
-                throw new Error('Agent non trouvé');
-            }
-            
-            // Attribuer le code
-            await this.db.attribuerCodePanique(code, code_agent, date_expiration);
-            
-            this.closeModal();
-            this.showToast(`Code attribué à ${code_agent}`, 'success');
-            await this.loadCodesPanique();
-        } catch (error) {
-            this.showToast(`Erreur: ${error.message}`, 'error');
-        }
-    }
-
-    async marquerCodeUtilise(code) {
-        if (confirm('Marquer ce code comme utilisé ?\n\nCette action est irréversible.')) {
+    async reinitialiserCodesPanique() {
+        if (confirm('Réinitialiser tous les codes panique ?')) {
             try {
-                await this.db.marquerCodePaniqueUtilise(code);
-                this.showToast('Code marqué comme utilisé', 'success');
+                await this.db.reinitialiserCodesPanique();
+                this.showToast('Codes panique réinitialisés', 'success');
                 await this.loadCodesPanique();
             } catch (error) {
                 this.showToast(`Erreur: ${error.message}`, 'error');
@@ -2294,18 +2052,6 @@ async showStatsParAgent() {
                 <button class="btn btn-success" onclick="sgaApp.showAjouterHabillementForm()">
                     ➕ Nouvelle Commande
                 </button>
-                <button class="btn btn-info" onclick="sgaApp.showRechercheHabillementForm()">
-                    🔍 Rechercher
-                </button>
-                <button class="btn btn-secondary" onclick="sgaApp.exporterHabillementExcel()">
-                    📤 Exporter Excel
-                </button>
-            </div>
-            
-            <div class="search-bar">
-                <input type="text" id="searchHabillement" class="form-input" 
-                       placeholder="Rechercher par agent, taille, type..." 
-                       onkeyup="sgaApp.filterHabillement()">
             </div>
             
             <div class="table-container">
@@ -2316,13 +2062,11 @@ async showStatsParAgent() {
                             <th>Type</th>
                             <th>Taille</th>
                             <th>Date Commande</th>
-                            <th>Date Livraison</th>
                             <th>Statut</th>
-                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody id="habillementTableBody">
-                        <tr><td colspan="7" class="loading">Chargement...</td></tr>
+                        <tr><td colspan="5" class="loading">Chargement...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -2340,11 +2084,8 @@ async showStatsParAgent() {
             if (commandes.length === 0) {
                 tbody.innerHTML = `
                     <tr>
-                        <td colspan="7" class="empty">
+                        <td colspan="5" class="empty">
                             <p>Aucune commande d'habillement</p>
-                            <button class="btn" onclick="sgaApp.showAjouterHabillementForm()">
-                                Ajouter une commande
-                            </button>
                         </td>
                     </tr>
                 `;
@@ -2355,12 +2096,11 @@ async showStatsParAgent() {
                 <tr>
                     <td>
                         <strong>${commande.agent_code}</strong><br>
-                        <small>${commande.agent_nom}</small>
+                        <small>${commande.agent_nom || ''}</small>
                     </td>
                     <td>${commande.type_uniforme}</td>
                     <td>${commande.taille}</td>
                     <td>${commande.date_commande || '-'}</td>
-                    <td>${commande.date_livraison || '-'}</td>
                     <td>
                         <span class="badge ${commande.statut === 'livre' ? 'badge-shift-1' : 
                                           commande.statut === 'en_cours' ? 'badge-shift-2' : 
@@ -2369,26 +2109,12 @@ async showStatsParAgent() {
                               commande.statut === 'en_cours' ? 'En cours' : 'Commandé'}
                         </span>
                     </td>
-                    <td>
-                        <div class="action-buttons">
-                            <button class="btn-icon" onclick="sgaApp.modifierCommandeHabillement(${commande.id})" 
-                                    title="Modifier">
-                                ✏️
-                            </button>
-                            ${commande.statut !== 'livre' ? `
-                                <button class="btn-icon" onclick="sgaApp.marquerCommandeLivree(${commande.id})" 
-                                        title="Marquer livré">
-                                    ✅
-                                </button>
-                            ` : ''}
-                        </div>
-                    </td>
                 </tr>
             `).join('');
         } catch (error) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="7" class="error">
+                    <td colspan="5" class="error">
                         Erreur: ${error.message}
                     </td>
                 </tr>
@@ -2419,33 +2145,19 @@ async showStatsParAgent() {
                         <option value="pantalon">Pantalon</option>
                         <option value="veste">Veste</option>
                         <option value="chaussures">Chaussures</option>
-                        <option value="accessoires">Accessoires</option>
                     </select>
                 </div>
                 
-                <div class="form-row">
-                    <div class="form-group">
-                        <label class="form-label">Taille</label>
-                        <input type="text" class="form-input" name="taille" 
-                               placeholder="Ex: M, 42, XL" required>
-                    </div>
-                    <div class="form-group">
-                        <label class="form-label">Quantité</label>
-                        <input type="number" class="form-input" name="quantite" 
-                               value="1" min="1" max="10">
-                    </div>
+                <div class="form-group">
+                    <label class="form-label">Taille</label>
+                    <input type="text" class="form-input" name="taille" 
+                           placeholder="Ex: M, 42, XL" required>
                 </div>
                 
                 <div class="form-group">
-                    <label class="form-label">Date de commande</label>
-                    <input type="date" class="form-input" name="date_commande" 
-                           value="${new Date().toISOString().split('T')[0]}">
-                </div>
-                
-                <div class="form-group">
-                    <label class="form-label">Remarques</label>
-                    <textarea class="form-input" name="remarques" rows="3" 
-                              placeholder="Couleur, modèle, spécificités..."></textarea>
+                    <label class="form-label">Quantité</label>
+                    <input type="number" class="form-input" name="quantite" 
+                           value="1" min="1" max="10">
                 </div>
                 
                 <div class="modal-actions">
@@ -2466,9 +2178,7 @@ async showStatsParAgent() {
             code_agent: formData.get('code_agent').toUpperCase(),
             type_uniforme: formData.get('type_uniforme'),
             taille: formData.get('taille'),
-            quantite: parseInt(formData.get('quantite')),
-            date_commande: formData.get('date_commande'),
-            remarques: formData.get('remarques')
+            quantite: parseInt(formData.get('quantite'))
         };
         
         try {
@@ -2484,20 +2194,6 @@ async showStatsParAgent() {
             this.closeModal();
             this.showToast('Commande enregistrée', 'success');
             await this.loadHabillementList();
-        } catch (error) {
-            this.showToast(`Erreur: ${error.message}`, 'error');
-        }
-    }
-
-    async marquerCommandeLivree(id) {
-        try {
-            const dateLivraison = prompt('Date de livraison (YYYY-MM-DD):', new Date().toISOString().split('T')[0]);
-            
-            if (dateLivraison) {
-                await this.db.marquerCommandeLivree(id, dateLivraison);
-                this.showToast('Commande marquée comme livrée', 'success');
-                await this.loadHabillementList();
-            }
         } catch (error) {
             this.showToast(`Erreur: ${error.message}`, 'error');
         }
@@ -2519,31 +2215,6 @@ async showStatsParAgent() {
                 <button class="btn btn-warning" onclick="sgaApp.showAjouterAvertissementForm()">
                     ⚠️ Nouvel Avertissement
                 </button>
-                <button class="btn btn-info" onclick="sgaApp.showStatistiquesAvertissements()">
-                    📊 Statistiques
-                </button>
-                <button class="btn btn-secondary" onclick="sgaApp.exporterAvertissementsExcel()">
-                    📤 Exporter Excel
-                </button>
-            </div>
-            
-            <div class="filters">
-                <select class="form-select" id="filterAvertissementStatut" 
-                        onchange="sgaApp.filterAvertissements()">
-                    <option value="tous">Tous les statuts</option>
-                    <option value="actif">Actif</option>
-                    <option value="resolu">Résolu</option>
-                    <option value="archive">Archivé</option>
-                </select>
-                
-                <select class="form-select" id="filterAvertissementType" 
-                        onchange="sgaApp.filterAvertissements()">
-                    <option value="tous">Tous les types</option>
-                    <option value="verbal">Verbal</option>
-                    <option value="ecrit">Écrit</option>
-                    <option value="suspension">Suspension</option>
-                    <option value="licenciement">Licenciement</option>
-                </select>
             </div>
             
             <div class="table-container">
@@ -2554,13 +2225,11 @@ async showStatsParAgent() {
                             <th>Agent</th>
                             <th>Type</th>
                             <th>Motif</th>
-                            <th>Sanction</th>
                             <th>Statut</th>
-                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody id="avertissementsTableBody">
-                        <tr><td colspan="7" class="loading">Chargement...</td></tr>
+                        <tr><td colspan="5" class="loading">Chargement...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -2578,7 +2247,7 @@ async showStatsParAgent() {
             if (avertissements.length === 0) {
                 tbody.innerHTML = `
                     <tr>
-                        <td colspan="7" class="empty">
+                        <td colspan="5" class="empty">
                             <p>Aucun avertissement enregistré</p>
                         </td>
                     </tr>
@@ -2608,33 +2277,18 @@ async showStatsParAgent() {
                         <td>${avert.date}</td>
                         <td>
                             <strong>${avert.agent_code}</strong><br>
-                            <small>${avert.agent_nom}</small>
+                            <small>${avert.agent_nom || ''}</small>
                         </td>
                         <td><span class="badge ${typeClass}">${avert.type}</span></td>
                         <td>${avert.motif}</td>
-                        <td>${avert.sanction || '-'}</td>
                         <td><span class="badge ${sanctionClass}">${avert.statut}</span></td>
-                        <td>
-                            <div class="action-buttons">
-                                <button class="btn-icon" onclick="sgaApp.voirAvertissement(${avert.id})" 
-                                        title="Voir détails">
-                                    👁️
-                                </button>
-                                ${avert.statut === 'actif' ? `
-                                    <button class="btn-icon" onclick="sgaApp.resoudreAvertissement(${avert.id})" 
-                                            title="Marquer résolu">
-                                        ✅
-                                    </button>
-                                ` : ''}
-                            </div>
-                        </td>
                     </tr>
                 `;
             }).join('');
         } catch (error) {
             tbody.innerHTML = `
                 <tr>
-                    <td colspan="7" class="error">
+                    <td colspan="5" class="error">
                         Erreur: ${error.message}
                     </td>
                 </tr>
@@ -2662,8 +2316,6 @@ async showStatsParAgent() {
                         <option value="">Sélectionner...</option>
                         <option value="verbal">Avertissement verbal</option>
                         <option value="ecrit">Avertissement écrit</option>
-                        <option value="suspension">Suspension</option>
-                        <option value="licenciement">Licenciement</option>
                     </select>
                 </div>
                 
@@ -2677,17 +2329,6 @@ async showStatsParAgent() {
                     <label class="form-label">Motif*</label>
                     <textarea class="form-input" name="motif" rows="3" required
                               placeholder="Décrivez le motif de l'avertissement..."></textarea>
-                </div>
-                
-                <div class="form-group">
-                    <label class="form-label">Sanction (si applicable)</label>
-                    <textarea class="form-input" name="sanction" rows="2"
-                              placeholder="Détails de la sanction..."></textarea>
-                </div>
-                
-                <div class="form-group">
-                    <label class="form-label">Date de fin de sanction</label>
-                    <input type="date" class="form-input" name="date_fin_sanction">
                 </div>
                 
                 <div class="modal-actions">
@@ -2708,9 +2349,7 @@ async showStatsParAgent() {
             code_agent: formData.get('code_agent').toUpperCase(),
             type: formData.get('type'),
             date: formData.get('date'),
-            motif: formData.get('motif'),
-            sanction: formData.get('sanction'),
-            date_fin_sanction: formData.get('date_fin_sanction') || null
+            motif: formData.get('motif')
         };
         
         try {
@@ -2726,20 +2365,6 @@ async showStatsParAgent() {
             this.closeModal();
             this.showToast('Avertissement enregistré', 'warning');
             await this.loadAvertissementsList();
-        } catch (error) {
-            this.showToast(`Erreur: ${error.message}`, 'error');
-        }
-    }
-
-    async resoudreAvertissement(id) {
-        try {
-            const motifResolution = prompt('Motif de la résolution:');
-            
-            if (motifResolution) {
-                await this.db.resoudreAvertissement(id, motifResolution);
-                this.showToast('Avertissement résolu', 'success');
-                await this.loadAvertissementsList();
-            }
         } catch (error) {
             this.showToast(`Erreur: ${error.message}`, 'error');
         }
@@ -2761,122 +2386,78 @@ async showStatsParAgent() {
                 <button class="btn btn-success" onclick="sgaApp.showDemanderCongeForm()">
                     🏖️ Demander Congé
                 </button>
-                <button class="btn btn-info" onclick="sgaApp.showPlanifierCongeForm()">
-                    📅 Planifier Congé
-                </button>
-                <button class="btn btn-secondary" onclick="sgaApp.exporterCongesExcel()">
-                    📤 Exporter Excel
-                </button>
             </div>
             
-            <div class="calendar-header">
-                <button class="btn-icon" onclick="sgaApp.prevMonthConges()">←</button>
-                <h4 id="congesMonthTitle">${new Date().toLocaleDateString('fr-FR', {month: 'long', year: 'numeric'})}</h4>
-                <button class="btn-icon" onclick="sgaApp.nextMonthConges()">→</button>
-            </div>
-            
-            <div class="calendar-grid" id="congesCalendar">
-                <!-- Calendrier des congés sera généré ici -->
-            </div>
-            
-            <div class="conges-list">
-                <h4>Congés du mois</h4>
-                <div id="congesListContent">
-                    <p class="loading">Chargement...</p>
-                </div>
+            <div class="table-container">
+                <table class="table" id="congesTable">
+                    <thead>
+                        <tr>
+                            <th>Agent</th>
+                            <th>Type</th>
+                            <th>Date début</th>
+                            <th>Date fin</th>
+                            <th>Statut</th>
+                        </tr>
+                    </thead>
+                    <tbody id="congesTableBody">
+                        <tr><td colspan="5" class="loading">Chargement...</td></tr>
+                    </tbody>
+                </table>
             </div>
         `;
         
-        await this.loadCongesCalendar();
+        await this.loadCongesList();
     }
 
-    async loadCongesCalendar() {
-        const calendar = document.getElementById('congesCalendar');
-        const list = document.getElementById('congesListContent');
+    async loadCongesList() {
+        const tbody = document.getElementById('congesTableBody');
         
         try {
-            const mois = new Date().getMonth() + 1;
-            const annee = new Date().getFullYear();
+            const conges = await this.db.obtenirCongesActifs();
             
-            const conges = await this.db.obtenirCongesMois(mois, annee);
-            const joursDansMois = new Date(annee, mois, 0).getDate();
-            
-            // Mettre à jour le titre
-            document.getElementById('congesMonthTitle').textContent = 
-                new Date(annee, mois - 1, 1).toLocaleDateString('fr-FR', {month: 'long', year: 'numeric'});
-            
-            // Générer le calendrier
-            calendar.innerHTML = '';
-            
-            // Jours de la semaine
-            const joursSemaine = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
-            joursSemaine.forEach(jour => {
-                const dayHeader = document.createElement('div');
-                dayHeader.className = 'calendar-day-header';
-                dayHeader.textContent = jour;
-                calendar.appendChild(dayHeader);
-            });
-            
-            // Premier jour du mois
-            const premierJour = new Date(annee, mois - 1, 1).getDay();
-            const decalage = premierJour === 0 ? 6 : premierJour - 1;
-            
-            // Cases vides au début
-            for (let i = 0; i < decalage; i++) {
-                const emptyDay = document.createElement('div');
-                emptyDay.className = 'calendar-day empty';
-                calendar.appendChild(emptyDay);
-            }
-            
-            // Jours du mois
-            for (let jour = 1; jour <= joursDansMois; jour++) {
-                const dateStr = `${annee}-${mois.toString().padStart(2, '0')}-${jour.toString().padStart(2, '0')}`;
-                const congesJour = conges.filter(c => c.date_debut <= dateStr && c.date_fin >= dateStr);
-                
-                const dayElement = document.createElement('div');
-                dayElement.className = 'calendar-day';
-                
-                if (congesJour.length > 0) {
-                    dayElement.classList.add('has-conge');
-                    dayElement.title = congesJour.map(c => `${c.agent_code}: ${c.type}`).join('\n');
-                    
-                    let congeCount = document.createElement('div');
-                    congeCount.className = 'conge-count';
-                    congeCount.textContent = congesJour.length;
-                    dayElement.appendChild(congeCount);
-                }
-                
-                const dayNumber = document.createElement('div');
-                dayNumber.className = 'day-number';
-                dayNumber.textContent = jour;
-                dayElement.appendChild(dayNumber);
-                
-                // Vérifier si c'est un dimanche
-                const date = new Date(annee, mois - 1, jour);
-                if (date.getDay() === 0) {
-                    dayElement.classList.add('dimanche');
-                }
-                
-                calendar.appendChild(dayElement);
-            }
-            
-            // Liste des congés
             if (conges.length === 0) {
-                list.innerHTML = '<p class="empty">Aucun congé ce mois-ci</p>';
-            } else {
-                list.innerHTML = conges.map(conge => `
-                    <div class="conge-item">
-                        <div class="conge-agent">${conge.agent_code} - ${conge.agent_nom}</div>
-                        <div class="conge-dates">${conge.date_debut} au ${conge.date_fin}</div>
-                        <div class="conge-type">${conge.type}</div>
-                        <div class="conge-statut ${conge.statut}">${conge.statut}</div>
-                    </div>
-                `).join('');
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="5" class="empty">
+                            <p>Aucun congé actif</p>
+                        </td>
+                    </tr>
+                `;
+                return;
             }
             
+            tbody.innerHTML = await Promise.all(conges.map(async (conge) => {
+                const agent = await this.db.obtenirAgent(conge.agent_code);
+                const agentNom = agent ? `${agent.nom} ${agent.prenom}` : conge.agent_code;
+                
+                return `
+                    <tr>
+                        <td>
+                            <strong>${conge.agent_code}</strong><br>
+                            <small>${agentNom}</small>
+                        </td>
+                        <td>${conge.type}</td>
+                        <td>${conge.date_debut}</td>
+                        <td>${conge.date_fin}</td>
+                        <td>
+                            <span class="badge ${conge.statut === 'approuve' ? 'badge-shift-1' : 
+                                              conge.statut === 'en_attente' ? 'badge-shift-2' : 
+                                              'badge-shift-A'}">
+                                ${conge.statut === 'approuve' ? 'Approuvé' : 
+                                  conge.statut === 'en_attente' ? 'En attente' : 'Refusé'}
+                            </span>
+                        </td>
+                    </tr>
+                `;
+            }));
         } catch (error) {
-            calendar.innerHTML = `<div class="error">Erreur: ${error.message}</div>`;
-            list.innerHTML = `<div class="error">Erreur: ${error.message}</div>`;
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="5" class="error">
+                        Erreur: ${error.message}
+                    </td>
+                </tr>
+            `;
         }
     }
 
@@ -2901,9 +2482,6 @@ async showStatsParAgent() {
                         <option value="annuel">Congé annuel</option>
                         <option value="exceptionnel">Congé exceptionnel</option>
                         <option value="maladie">Maladie</option>
-                        <option value="maternite">Maternité/Paternité</option>
-                        <option value="formation">Formation</option>
-                        <option value="autre">Autre</option>
                     </select>
                 </div>
                 
@@ -2958,18 +2536,12 @@ async showStatsParAgent() {
                 throw new Error('La date de début doit être antérieure à la date de fin');
             }
             
-            // Vérifier la disponibilité
-            const conflits = await this.db.verifierConflitsConge(conge.code_agent, conge.date_debut, conge.date_fin);
-            if (conflits.length > 0) {
-                throw new Error('Conflit avec des congés existants');
-            }
-            
             // Demander le congé
             await this.db.demanderConge(conge);
             
             this.closeModal();
             this.showToast('Demande de congé enregistrée', 'success');
-            await this.loadCongesCalendar();
+            await this.loadCongesList();
         } catch (error) {
             this.showToast(`Erreur: ${error.message}`, 'error');
         }
@@ -2988,22 +2560,10 @@ async showStatsParAgent() {
             </div>
             
             <div class="tools-grid">
-                <div class="tool-card" onclick="sgaApp.showImporterExcelForm()">
-                    <div class="tool-icon">📥</div>
-                    <h4>IMPORTER EXCEL</h4>
-                    <p>Importer des agents depuis Excel</p>
-                </div>
-                
                 <div class="tool-card" onclick="sgaApp.exporterBackup()">
                     <div class="tool-icon">💾</div>
                     <h4>SAUVEGARDER</h4>
                     <p>Créer une sauvegarde complète</p>
-                </div>
-                
-                <div class="tool-card" onclick="sgaApp.showRestaurerBackupForm()">
-                    <div class="tool-icon">🔄</div>
-                    <h4>RESTAURER</h4>
-                    <p>Restaurer depuis sauvegarde</p>
                 </div>
                 
                 <div class="tool-card" onclick="sgaApp.reparerBaseDonnees()">
@@ -3024,12 +2584,6 @@ async showStatsParAgent() {
                     <p>Gérer les jours fériés</p>
                 </div>
                 
-                <div class="tool-card" onclick="sgaApp.genererRapportMensuel()">
-                    <div class="tool-icon">📊</div>
-                    <h4>RAPPORT MENSUEL</h4>
-                    <p>Générer rapport complet</p>
-                </div>
-                
                 <div class="tool-card" onclick="sgaApp.showParametres()">
                     <div class="tool-icon">⚙️</div>
                     <h4>PARAMÈTRES</h4>
@@ -3040,122 +2594,17 @@ async showStatsParAgent() {
             <div class="info-card">
                 <h4>Informations système</h4>
                 <div class="info-grid" id="systemInfo">
-                    <!-- Informations système seront chargées ici -->
+                    <div class="info-item">
+                        <span class="info-label">Version:</span>
+                        <span class="info-value">1.0.0</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-label">Dernière sync:</span>
+                        <span class="info-value">${localStorage.getItem('sga-last-sync') || 'Jamais'}</span>
+                    </div>
                 </div>
             </div>
         `;
-        
-        await this.loadSystemInfo();
-    }
-
-    async loadSystemInfo() {
-        const infoGrid = document.getElementById('systemInfo');
-        
-        try {
-            const stats = await this.db.obtenirStatsGlobales();
-            const agents = await this.db.listerAgents();
-            
-            infoGrid.innerHTML = `
-                <div class="info-item">
-                    <span class="info-label">Version:</span>
-                    <span class="info-value">1.0.0</span>
-                </div>
-                <div class="info-item">
-                    <span class="info-label">Agents:</span>
-                    <span class="info-value">${stats.totalAgents}</span>
-                </div>
-                <div class="info-item">
-                    <span class="info-label">Radios:</span>
-                    <span class="info-value">${stats.totalRadios}</span>
-                </div>
-                <div class="info-item">
-                    <span class="info-label">Congés actifs:</span>
-                    <span class="info-value">${stats.totalCongesActifs}</span>
-                </div>
-                <div class="info-item">
-                    <span class="info-label">Base de données:</span>
-                    <span class="info-value">${localStorage.getItem('sga-db-version') || '1.0'}</span>
-                </div>
-                <div class="info-item">
-                    <span class="info-label">Dernière sync:</span>
-                    <span class="info-value">${localStorage.getItem('sga-last-sync') || 'Jamais'}</span>
-                </div>
-            `;
-        } catch (error) {
-            infoGrid.innerHTML = `<p class="error">Erreur: ${error.message}</p>`;
-        }
-    }
-
-    async showImporterExcelForm() {
-        this.showModal(`
-            <div class="modal-header">
-                <h3 class="modal-title">📥 Importer depuis Excel</h3>
-                <button class="modal-close" onclick="sgaApp.closeModal()">×</button>
-            </div>
-            
-            <div class="modal-body">
-                <div class="instructions">
-                    <p><strong>Format Excel requis:</strong></p>
-                    <ul>
-                        <li>Colonne A: Code (CPA, CONA, ZA...)</li>
-                        <li>Colonne B: Nom</li>
-                        <li>Colonne C: Prénom</li>
-                        <li>Colonne D: Groupe (A, B, C, D, E)</li>
-                        <li>Colonne E: Date entrée (optionnel)</li>
-                    </ul>
-                    <p><em>La première ligne doit contenir les en-têtes</em></p>
-                </div>
-                
-                <div class="form-group">
-                    <label class="form-label">Fichier Excel</label>
-                    <input type="file" class="form-input" id="excelFile" 
-                           accept=".xlsx, .xls, .csv">
-                </div>
-                
-                <div class="form-group">
-                    <label class="form-check">
-                        <input type="checkbox" id="overwriteAgents">
-                        <span>Remplacer les agents existants</span>
-                    </label>
-                </div>
-            </div>
-            
-            <div class="modal-actions">
-                <button class="btn btn-success" onclick="sgaApp.importerExcel()">
-                    Importer
-                </button>
-                <button class="btn btn-secondary" onclick="sgaApp.closeModal()">
-                    Annuler
-                </button>
-            </div>
-        `);
-    }
-
-    async importerExcel() {
-        const fileInput = document.getElementById('excelFile');
-        const overwrite = document.getElementById('overwriteAgents').checked;
-        
-        if (!fileInput.files.length) {
-            this.showToast('Veuillez sélectionner un fichier', 'error');
-            return;
-        }
-        
-        const file = fileInput.files[0];
-        
-        try {
-            // Simuler l'importation (dans une vraie implémentation, on utiliserait une librairie comme xlsx)
-            this.showToast('Importation simulée - fonctionnalité en développement', 'info');
-            this.closeModal();
-            
-            // Dans une vraie implémentation :
-            // 1. Lire le fichier Excel
-            // 2. Parser les données
-            // 3. Ajouter les agents à la base
-            // 4. Afficher un résumé
-            
-        } catch (error) {
-            this.showToast(`Erreur d'importation: ${error.message}`, 'error');
-        }
     }
 
     async exporterBackup() {
@@ -3212,11 +2661,6 @@ async showStatsParAgent() {
                         <button type="submit" class="btn btn-success">Ajouter</button>
                     </div>
                 </form>
-                
-                <div class="feries-list" id="feriesList">
-                    <h4>Jours fériés enregistrés</h4>
-                    <!-- Liste des jours fériés -->
-                </div>
             </div>
             
             <div class="modal-actions">
@@ -3225,35 +2669,6 @@ async showStatsParAgent() {
                 </button>
             </div>
         `);
-        
-        await this.loadJoursFeries();
-    }
-
-    async loadJoursFeries() {
-        const list = document.getElementById('feriesList');
-        
-        try {
-            const feries = await this.db.obtenirJoursFeries();
-            
-            if (feries.length === 0) {
-                list.innerHTML += '<p>Aucun jour férié enregistré</p>';
-                return;
-            }
-            
-            const feriesHTML = feries.map(ferie => `
-                <div class="ferie-item">
-                    <span>${ferie.date} - ${ferie.nom}</span>
-                    <button class="btn-icon" onclick="sgaApp.supprimerJourFerie('${ferie.date}')" 
-                            title="Supprimer">
-                        🗑️
-                    </button>
-                </div>
-            `).join('');
-            
-            list.innerHTML += feriesHTML;
-        } catch (error) {
-            list.innerHTML += `<p class="error">Erreur: ${error.message}</p>`;
-        }
     }
 
     async ajouterJourFerie(event) {
@@ -3268,382 +2683,12 @@ async showStatsParAgent() {
         try {
             await this.db.ajouterJourFerie(ferie);
             event.target.reset();
-            await this.loadJoursFeries();
             this.showToast('Jour férié ajouté', 'success');
         } catch (error) {
             this.showToast(`Erreur: ${error.message}`, 'error');
         }
     }
 
-    async supprimerJourFerie(date) {
-        if (confirm('Supprimer ce jour férié ?')) {
-            try {
-                await this.db.supprimerJourFerie(date);
-                await this.loadJoursFeries();
-                this.showToast('Jour férié supprimé', 'success');
-            } catch (error) {
-                this.showToast(`Erreur: ${error.message}`, 'error');
-            }
-        }
-    }
-
-    async genererRapportMensuel() {
-        const mois = new Date().getMonth() + 1;
-        const annee = new Date().getFullYear();
-        
-        try {
-            const agents = await this.db.listerAgents();
-            let rapportHTML = `
-                <h2>Rapport Mensuel - ${mois}/${annee}</h2>
-                <h3>Synthèse générale</h3>
-                <p>Date de génération: ${new Date().toLocaleDateString('fr-FR')}</p>
-                <p>Total agents: ${agents.length}</p>
-                
-                <h3>Détail par groupe</h3>
-                <table border="1" style="width:100%; border-collapse: collapse;">
-                    <tr>
-                        <th>Groupe</th>
-                        <th>Nombre agents</th>
-                        <th>Shifts matin</th>
-                        <th>Shifts après-midi</th>
-                        <th>Shifts nuit</th>
-                        <th>Total opérationnel</th>
-                    </tr>
-            `;
-            
-            const groupes = ['A', 'B', 'C', 'D', 'E'];
-            
-            for (const groupe of groupes) {
-                const agentsGroupe = agents.filter(a => a.groupe === groupe);
-                let totalMatin = 0;
-                let totalApresMidi = 0;
-                let totalNuit = 0;
-                let totalOperationnel = 0;
-                
-                for (const agent of agentsGroupe) {
-                    const stats = await this.planningEngine.calculerStatsAgent(agent.code, mois, annee);
-                    totalMatin += stats.stats['1'];
-                    totalApresMidi += stats.stats['2'];
-                    totalNuit += stats.stats['3'];
-                    totalOperationnel += stats.totalOperationnels;
-                }
-                
-                rapportHTML += `
-                    <tr>
-                        <td>${groupe}</td>
-                        <td>${agentsGroupe.length}</td>
-                        <td>${totalMatin}</td>
-                        <td>${totalApresMidi}</td>
-                        <td>${totalNuit}</td>
-                        <td>${totalOperationnel}</td>
-                    </tr>
-                `;
-            }
-            
-            rapportHTML += `
-                </table>
-                
-                <h3>Absences du mois</h3>
-                <p>Congés: ${await this.db.compterAbsencesParType('C', mois, annee)}</p>
-                <p>Maladies: ${await this.db.compterAbsencesParType('M', mois, annee)}</p>
-                <p>Autres absences: ${await this.db.compterAbsencesParType('A', mois, annee)}</p>
-                
-                <h3>Radios</h3>
-                <p>Radios attribuées: ${(await this.db.obtenirStatsRadios()).attribuees}</p>
-                <p>Radios disponibles: ${(await this.db.obtenirStatsRadios()).disponibles}</p>
-                
-                <footer>
-                    <p>Généré par SGA PWA - ${new Date().toLocaleDateString('fr-FR')}</p>
-                </footer>
-            `;
-            
-            // Ouvrir dans une nouvelle fenêtre pour impression
-            const printWindow = window.open('', '_blank');
-            printWindow.document.write(`
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <title>Rapport Mensuel SGA - ${mois}/${annee}</title>
-                    <style>
-                        body { font-family: Arial, sans-serif; margin: 20px; }
-                        table { border-collapse: collapse; width: 100%; margin: 20px 0; }
-                        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-                        th { background-color: #f2f2f2; }
-                        h2 { color: #333; }
-                        footer { margin-top: 50px; font-size: 12px; color: #666; }
-                    </style>
-                </head>
-                <body>
-                    ${rapportHTML}
-                    <script>
-                        window.onload = function() {
-                            window.print();
-                        }
-                    </script>
-                </body>
-                </html>
-            `);
-            
-            this.showToast('Rapport généré', 'success');
-        } catch (error) {
-            this.showToast(`Erreur: ${error.message}`, 'error');
-        }
-    }
-
-    // ========================================
-    // FONCTIONS UTILITAIRES
-    // ========================================
-    showModal(content) {
-        const modal = document.getElementById('modalOverlay');
-        const modalContent = document.getElementById('modalContent');
-        
-        modalContent.innerHTML = content;
-        modal.classList.add('active');
-        
-        // Focus sur le premier champ input
-        setTimeout(() => {
-            const firstInput = modalContent.querySelector('input, select, textarea');
-            if (firstInput) firstInput.focus();
-        }, 100);
-    }
-
-    closeModal() {
-        const modal = document.getElementById('modalOverlay');
-        modal.classList.remove('active');
-    }
-
-    showToast(message, type = 'info') {
-        const toast = document.createElement('div');
-        toast.className = `toast toast-${type}`;
-        toast.textContent = message;
-        
-        document.body.appendChild(toast);
-        
-        setTimeout(() => {
-            toast.classList.add('show');
-        }, 10);
-        
-        setTimeout(() => {
-            toast.classList.remove('show');
-            setTimeout(() => {
-                document.body.removeChild(toast);
-            }, 300);
-        }, 3000);
-    }
-
-    toggleTheme() {
-        this.theme = this.theme === 'light' ? 'dark' : 'light';
-        localStorage.setItem('sga-theme', this.theme);
-        this.applyTheme();
-    }
-
-    async syncData() {
-        try {
-            this.showToast('Synchronisation en cours...', 'info');
-            
-            // Simuler une synchronisation
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            
-            localStorage.setItem('sga-last-sync', new Date().toLocaleString());
-            this.updateBaseInfo();
-            
-            this.showToast('Synchronisation terminée', 'success');
-        } catch (error) {
-            this.showToast('Erreur de synchronisation', 'error');
-        }
-    }
-
-    // ========================================
-    // FONCTIONS DE FILTRAGE
-    // ========================================
-    filterAgents() {
-        const searchTerm = document.getElementById('searchAgent').value.toLowerCase();
-        const rows = document.querySelectorAll('#agentsTableBody tr');
-        
-        rows.forEach(row => {
-            const text = row.textContent.toLowerCase();
-            row.style.display = text.includes(searchTerm) ? '' : 'none';
-        });
-    }
-
-    filterAvertissements() {
-        const statutFilter = document.getElementById('filterAvertissementStatut').value;
-        const typeFilter = document.getElementById('filterAvertissementType').value;
-        const rows = document.querySelectorAll('#avertissementsTableBody tr');
-        
-        rows.forEach(row => {
-            const statut = row.querySelector('.badge').textContent.toLowerCase();
-            const type = row.querySelector('td:nth-child(3) .badge').textContent.toLowerCase();
-            
-            const showStatut = statutFilter === 'tous' || statut === statutFilter;
-            const showType = typeFilter === 'tous' || type === typeFilter;
-            
-            row.style.display = (showStatut && showType) ? '' : 'none';
-        });
-    }
-
-    filterHabillement() {
-        const searchTerm = document.getElementById('searchHabillement').value.toLowerCase();
-        const rows = document.querySelectorAll('#habillementTableBody tr');
-        
-        rows.forEach(row => {
-            const text = row.textContent.toLowerCase();
-            row.style.display = text.includes(searchTerm) ? '' : 'none';
-        });
-    }
-// ========================================
-// FONCTIONS D'EXPORT
-// ========================================
-async exporterAgentsExcel() {
-    try {
-        await this.exportUtils.exporterAgentsExcel();
-        this.showToast('Export réussi', 'success');
-    } catch (error) {
-        this.showToast(`Erreur: ${error.message}`, 'error');
-    }
-}
-
-async exporterPlanningExcel() {
-    const mois = new Date().getMonth() + 1;
-    const annee = new Date().getFullYear();
-    
-    try {
-        await this.exportUtils.exporterPlanningExcel(mois, annee);
-        this.showToast('Export réussi', 'success');
-    } catch (error) {
-        this.showToast(`Erreur: ${error.message}`, 'error');
-    }
-}
-
-async exporterStatsAgentPDF(code, mois, annee) {
-    try {
-        await this.exportUtils.exporterStatsAgentPDF(code, mois, annee);
-        this.showToast('PDF généré', 'success');
-    } catch (error) {
-        this.showToast(`Erreur: ${error.message}`, 'error');
-    }
-}
-
-    // ========================================
-    // FONCTIONS CALENDRIER CONGES
-    // ========================================
-    prevMonthConges() {
-        // Navigation mois précédent
-        this.showToast('Navigation en développement', 'info');
-    }
-
-    nextMonthConges() {
-        // Navigation mois suivant
-        this.showToast('Navigation en développement', 'info');
-    }
-
-    // ========================================
-    // MENU JOURS FERIES
-    // ========================================
-    showFeriesMenu() {
-        this.showModal(`
-            <div class="modal-header">
-                <h3 class="modal-title">🎯 Jours Fériés</h3>
-                <button class="modal-close" onclick="sgaApp.closeModal()">×</button>
-            </div>
-            
-            <div class="modal-body">
-                <div class="menu-grid">
-                    <div class="menu-card" onclick="sgaApp.showJourFerieForm()">
-                        <h3><span>➕</span> AJOUTER</h3>
-                        <p>Ajouter un jour férié</p>
-                    </div>
-                    
-                    <div class="menu-card" onclick="sgaApp.listerJoursFeries()">
-                        <h3><span>📋</span> LISTER</h3>
-                        <p>Voir tous les jours fériés</p>
-                    </div>
-                    
-                    <div class="menu-card" onclick="sgaApp.importerJoursFeries()">
-                        <h3><span>📥</span> IMPORTER</h3>
-                        <p>Importer depuis fichier</p>
-                    </div>
-                    
-                    <div class="menu-card" onclick="sgaApp.exporterJoursFeries()">
-                        <h3><span>📤</span> EXPORTER</h3>
-                        <p>Exporter en CSV</p>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="modal-actions">
-                <button class="btn btn-secondary" onclick="sgaApp.closeModal()">
-                    Fermer
-                </button>
-            </div>
-        `);
-    }
-
-    async listerJoursFeries() {
-        try {
-            const feries = await this.db.obtenirJoursFeries();
-            
-            let html = `
-                <div class="modal-header">
-                    <h3 class="modal-title">📋 Jours Fériés</h3>
-                    <button class="modal-close" onclick="sgaApp.closeModal()">×</button>
-                </div>
-                
-                <div class="table-container">
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>Date</th>
-                                <th>Nom</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-            `;
-            
-            feries.forEach(ferie => {
-                html += `
-                    <tr>
-                        <td>${ferie.date}</td>
-                        <td>${ferie.nom}</td>
-                        <td>
-                            <button class="btn-icon" onclick="sgaApp.supprimerJourFerie('${ferie.date}')">
-                                🗑️
-                            </button>
-                        </td>
-                    </tr>
-                `;
-            });
-            
-            html += `
-                        </tbody>
-                    </table>
-                </div>
-                
-                <div class="modal-actions">
-                    <button class="btn btn-secondary" onclick="sgaApp.closeModal()">
-                        Fermer
-                    </button>
-                </div>
-            `;
-            
-            this.showModal(html);
-        } catch (error) {
-            this.showToast(`Erreur: ${error.message}`, 'error');
-        }
-    }
-
-    async importerJoursFeries() {
-        this.showToast('Importation en développement', 'info');
-    }
-
-    async exporterJoursFeries() {
-        this.showToast('Export en développement', 'info');
-    }
-
-    // ========================================
-    // FONCTIONS SYSTEME
-    // ========================================
     async viderCache() {
         if (confirm('Vider le cache local ?\n\nCette action supprimera toutes les données non synchronisées.')) {
             try {
@@ -3675,28 +2720,7 @@ async exporterStatsAgentPDF(code, mois, annee) {
                 </div>
                 
                 <div class="setting-item">
-                    <span>Synchronisation auto</span>
-                    <label class="switch">
-                        <input type="checkbox" ${localStorage.getItem('sga-auto-sync') === 'true' ? 'checked' : ''} 
-                               onchange="localStorage.setItem('sga-auto-sync', this.checked)">
-                        <span class="slider"></span>
-                    </label>
-                </div>
-                
-                <div class="setting-item">
-                    <span>Notifications</span>
-                    <label class="switch">
-                        <input type="checkbox" ${localStorage.getItem('sga-notifications') === 'true' ? 'checked' : ''} 
-                               onchange="localStorage.setItem('sga-notifications', this.checked)">
-                        <span class="slider"></span>
-                    </label>
-                </div>
-                
-                <div class="setting-item">
-                    <span>Version base: ${localStorage.getItem('sga-db-version') || '1.0'}</span>
-                    <button class="btn-small" onclick="sgaApp.mettreAJourBase()">
-                        Mettre à jour
-                    </button>
+                    <span>Version: 1.0.0</span>
                 </div>
             </div>
             
@@ -3711,15 +2735,6 @@ async exporterStatsAgentPDF(code, mois, annee) {
         `);
     }
 
-    async mettreAJourBase() {
-        try {
-            await this.db.mettreAJourStructure();
-            this.showToast('Base mise à jour', 'success');
-        } catch (error) {
-            this.showToast(`Erreur: ${error.message}`, 'error');
-        }
-    }
-
     async reinitialiserApplication() {
         if (confirm('⚠️ RÉINITIALISER L\'APPLICATION ?\n\nToutes les données locales seront effacées.\nCette action est irréversible.')) {
             try {
@@ -3732,23 +2747,92 @@ async exporterStatsAgentPDF(code, mois, annee) {
             }
         }
     }
+
+    // ========================================
+    // MENU JOURS FERIES
+    // ========================================
+    showFeriesMenu() {
+        this.showModal(`
+            <div class="modal-header">
+                <h3 class="modal-title">🎯 Jours Fériés</h3>
+                <button class="modal-close" onclick="sgaApp.closeModal()">×</button>
+            </div>
+            
+            <div class="modal-body">
+                <div class="menu-grid">
+                    <div class="menu-card" onclick="sgaApp.showJourFerieForm()">
+                        <h3><span>➕</span> AJOUTER</h3>
+                        <p>Ajouter un jour férié</p>
+                    </div>
+                    
+                    <div class="menu-card" onclick="sgaApp.listerJoursFeries()">
+                        <h3><span>📋</span> LISTER</h3>
+                        <p>Voir tous les jours fériés</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="sgaApp.closeModal()">
+                    Fermer
+                </button>
+            </div>
+        `);
+    }
+
+    async listerJoursFeries() {
+        try {
+            const feries = await this.db.obtenirJoursFeries();
+            
+            let html = `
+                <div class="modal-header">
+                    <h3 class="modal-title">📋 Jours Fériés</h3>
+                    <button class="modal-close" onclick="sgaApp.closeModal()">×</button>
+                </div>
+                
+                <div class="table-container">
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Nom</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+            
+            feries.forEach(ferie => {
+                html += `
+                    <tr>
+                        <td>${ferie.date}</td>
+                        <td>${ferie.nom}</td>
+                    </tr>
+                `;
+            });
+            
+            html += `
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="modal-actions">
+                    <button class="btn btn-secondary" onclick="sgaApp.closeModal()">
+                        Fermer
+                    </button>
+                </div>
+            `;
+            
+            this.showModal(html);
+        } catch (error) {
+            this.showToast(`Erreur: ${error.message}`, 'error');
+        }
+    }
 }
 
 // Initialiser l'application
 let sgaApp;
 document.addEventListener('DOMContentLoaded', () => {
     sgaApp = new SGA_App();
+    window.sgaApp = sgaApp;
+    sgaApp.initialize();
 });
-// Initialisation dans SGA_App
-this.exportUtils = new ExportUtils(this.db);
-this.exportUtils.setPlanningEngine(this.planningEngine);
-
-// Exemple d'utilisation
-async exporterAgentsExcel() {
-    try {
-        await this.exportUtils.exporterAgentsExcel();
-        this.showToast('Export réussi', 'success');
-    } catch (error) {
-        this.showToast(`Erreur: ${error.message}`, 'error');
-    }
-}
