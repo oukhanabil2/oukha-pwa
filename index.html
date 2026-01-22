@@ -114,5 +114,37 @@
                 .catch(err => console.log('Erreur SW:', err));
         }
     </script>
+    <script>
+// Script de diagnostic
+console.log('=== DIAGNOSTIC SGA ===');
+console.log('Avant chargement des scripts:');
+console.log('Database:', typeof Database);
+console.log('PlanningEngine:', typeof PlanningEngine);
+console.log('ExportUtils:', typeof ExportUtils);
+
+// Attendre que tout soit chargé
+window.addEventListener('load', function() {
+    console.log('=== APRÈS CHARGEMENT COMPLET ===');
+    console.log('Database:', typeof Database);
+    console.log('PlanningEngine:', typeof PlanningEngine);
+    console.log('ExportUtils:', typeof ExportUtils);
+    
+    if (typeof Database === 'undefined') {
+        console.error('❌ Database NON DÉFINI');
+    }
+    if (typeof PlanningEngine === 'undefined') {
+        console.error('❌ PlanningEngine NON DÉFINI');
+    }
+    if (typeof ExportUtils === 'undefined') {
+        console.error('❌ ExportUtils NON DÉFINI');
+    }
+    
+    // Vérifier les chemins des scripts
+    console.log('Scripts chargés:');
+    document.querySelectorAll('script[src]').forEach(script => {
+        console.log('  -', script.src);
+    });
+});
+</script>
 </body>
 </html>
