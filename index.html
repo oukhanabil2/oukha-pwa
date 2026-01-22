@@ -8,231 +8,426 @@
     <link rel="manifest" href="manifest.json">
     <link rel="icon" href="icons/icon-72x72.png">
     <meta name="theme-color" content="#2c3e50">
+    <style>
+        /* Style minimal pour le loader */
+        #appLoader {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: #2c3e50;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 99999;
+        }
+        .loader-spinner {
+            width: 50px;
+            height: 50px;
+            border: 5px solid #3498db;
+            border-top: 5px solid transparent;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .loader-text {
+            color: white;
+            margin-top: 20px;
+            font-size: 18px;
+        }
+    </style>
 </head>
 <body>
-    <!-- En-tête -->
-    <header class="app-header">
-        <div class="header-content">
-            <h1>📋 SYSTEME DE GESTION DES AGENTS</h1>
-            <p class="subtitle" id="pageSubtitle">Menu Principal</p>
-        </div>
-        <div class="header-actions">
-            <button id="backBtn" class="btn-icon" title="Retour" style="display:none">←</button>
-            <button id="syncBtn" class="btn-icon" title="Synchroniser">🔄</button>
-            <button id="themeBtn" class="btn-icon" title="Changer thème">🌙</button>
-        </div>
-    </header>
-
-    <!-- Navigation -->
-    <nav class="horizontal-nav" id="topNav">
-        <button class="nav-tab active" data-page="menu">🏠 Accueil</button>
-        <button class="nav-tab" data-page="agents">👥 Agents</button>
-        <button class="nav-tab" data-page="planning">📅 Planning</button>
-        <button class="nav-tab" data-page="stats">📊 Stats</button>
-        <button class="nav-tab" data-page="radios">📻 Radios</button>
-        <button class="nav-tab" data-page="panique">🚨 Panique</button>
-        <button class="nav-tab" data-page="habillement">👕 Habillement</button>
-        <button class="nav-tab" data-page="avertissements">⚠️ Avertissements</button>
-        <button class="nav-tab" data-page="conges">🏖️ Congés</button>
-        <button class="nav-tab" data-page="outils">🛠️ Outils</button>
-    </nav>
-
-    <!-- Contenu principal -->
-    <main class="main-content">
-        <div id="pageMenu" class="page active">
-            <div class="menu-grid"></div>
-        </div>
-        <div id="pageAgents" class="page"><div class="page-content" id="agentsContent"></div></div>
-        <div id="pagePlanning" class="page"><div class="page-content" id="planningContent"></div></div>
-        <div id="pageStats" class="page"><div class="page-content" id="statsContent"></div></div>
-        <div id="pageRadios" class="page"><div class="page-content" id="radiosContent"></div></div>
-        <div id="pagePanique" class="page"><div class="page-content" id="paniqueContent"></div></div>
-        <div id="pageHabillement" class="page"><div class="page-content" id="habillementContent"></div></div>
-        <div id="pageAvertissements" class="page"><div class="page-content" id="avertissementsContent"></div></div>
-        <div id="pageConges" class="page"><div class="page-content" id="congesContent"></div></div>
-        <div id="pageOutils" class="page"><div class="page-content" id="outilsContent"></div></div>
-    </main>
-
-    <!-- Footer -->
-    <footer class="app-footer">
-        <div class="footer-info">
-            <span id="dbInfo">Base: Chargement...</span>
-            <span id="syncStatus">⚡ En ligne</span>
-        </div>
-        <div class="footer-version">SGA PWA v1.0 | © 2024</div>
-    </footer>
-
-    <!-- Modal -->
-    <div id="modalOverlay" class="modal-overlay" style="display:none"></div>
-    <div id="modalContainer" class="modal-container" style="display:none"></div>
-
-    <!-- Système de diagnostic visible -->
-    <div id="mobileDebug" style="
-        position: fixed;
-        bottom: 10px;
-        right: 10px;
-        background: #e74c3c;
-        color: white;
-        padding: 15px;
-        border-radius: 10px;
-        z-index: 99999;
-        font-size: 14px;
-        display: none;
-        max-width: 300px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-    ">
-        <strong>⚠️ ERREUR DETECTÉE</strong>
-        <div id="debugMessage"></div>
-        <div style="margin-top: 10px;">
-            <button onclick="location.reload()" style="
-                background: white;
-                color: #e74c3c;
-                border: none;
-                padding: 8px 12px;
-                border-radius: 5px;
-                margin: 5px;
-            ">🔄 Recharger</button>
-            <button onclick="localStorage.clear(); location.reload()" style="
-                background: #f39c12;
-                color: white;
-                border: none;
-                padding: 8px 12px;
-                border-radius: 5px;
-                margin: 5px;
-            ">🧹 Vider cache</button>
-        </div>
+    <!-- Écran de chargement -->
+    <div id="appLoader">
+        <div class="loader-spinner"></div>
+        <div class="loader-text" id="loaderMessage">Chargement de l'application...</div>
     </div>
 
-    <!-- Scripts dans l'ORDRE CORRECT -->
+    <!-- Interface principale (cachée pendant le chargement) -->
+    <div id="mainApp" style="display: none;">
+        <!-- En-tête -->
+        <header class="app-header">
+            <div class="header-content">
+                <h1>📋 SYSTEME DE GESTION DES AGENTS</h1>
+                <p class="subtitle" id="pageSubtitle">Menu Principal</p>
+            </div>
+            <div class="header-actions">
+                <button id="backBtn" class="btn-icon" title="Retour" style="display:none">←</button>
+                <button id="syncBtn" class="btn-icon" title="Synchroniser">🔄</button>
+                <button id="themeBtn" class="btn-icon" title="Changer thème">🌙</button>
+            </div>
+        </header>
+
+        <!-- Navigation -->
+        <nav class="horizontal-nav" id="topNav">
+            <button class="nav-tab active" data-page="menu">🏠 Accueil</button>
+            <button class="nav-tab" data-page="agents">👥 Agents</button>
+            <button class="nav-tab" data-page="planning">📅 Planning</button>
+            <button class="nav-tab" data-page="stats">📊 Stats</button>
+            <button class="nav-tab" data-page="radios">📻 Radios</button>
+            <button class="nav-tab" data-page="panique">🚨 Panique</button>
+            <button class="nav-tab" data-page="habillement">👕 Habillement</button>
+            <button class="nav-tab" data-page="avertissements">⚠️ Avertissements</button>
+            <button class="nav-tab" data-page="conges">🏖️ Congés</button>
+            <button class="nav-tab" data-page="outils">🛠️ Outils</button>
+        </nav>
+
+        <!-- Contenu principal -->
+        <main class="main-content">
+            <div id="pageMenu" class="page active">
+                <div class="menu-grid"></div>
+            </div>
+            <div id="pageAgents" class="page"><div class="page-content" id="agentsContent"></div></div>
+            <div id="pagePlanning" class="page"><div class="page-content" id="planningContent"></div></div>
+            <div id="pageStats" class="page"><div class="page-content" id="statsContent"></div></div>
+            <div id="pageRadios" class="page"><div class="page-content" id="radiosContent"></div></div>
+            <div id="pagePanique" class="page"><div class="page-content" id="paniqueContent"></div></div>
+            <div id="pageHabillement" class="page"><div class="page-content" id="habillementContent"></div></div>
+            <div id="pageAvertissements" class="page"><div class="page-content" id="avertissementsContent"></div></div>
+            <div id="pageConges" class="page"><div class="page-content" id="congesContent"></div></div>
+            <div id="pageOutils" class="page"><div class="page-content" id="outilsContent"></div></div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="app-footer">
+            <div class="footer-info">
+                <span id="dbInfo">Base: Chargement...</span>
+                <span id="syncStatus">⚡ En ligne</span>
+            </div>
+            <div class="footer-version">SGA PWA v1.0 | © 2024</div>
+        </footer>
+
+        <!-- Modal -->
+        <div id="modalOverlay" class="modal-overlay" style="display:none"></div>
+        <div id="modalContainer" class="modal-container" style="display:none"></div>
+    </div>
+
+    <!-- Scripts intégrés DIRECTEMENT dans le HTML pour éviter les problèmes de chargement -->
     <script>
-        // ==================== FICHIERS MINIMALISTES DIRECTEMENT DANS index.html ====================
-        
-        // 1. SGA_Database (version simplifiée pour test)
+        // ==================== SGA_Database (version simplifiée) ====================
+        console.log('📦 Définition de SGA_Database...');
         class SGA_Database {
-            constructor() { console.log('✅ SGA_Database créé'); }
-            async initialize() { 
-                console.log('✅ DB initialisée');
-                return Promise.resolve();
+            constructor() {
+                this.db = null;
+                this.dbName = 'SGA_DB_v1';
+                console.log('✅ SGA_Database créé');
             }
-            async listerAgents() { return []; }
-            async obtenirAgent() { return null; }
-            async ajouterAgent() { return true; }
+            
+            async initialize() {
+                console.log('🔄 Initialisation de la base de données...');
+                return new Promise((resolve) => {
+                    setTimeout(() => {
+                        console.log('✅ Base de données initialisée');
+                        resolve();
+                    }, 100);
+                });
+            }
+            
+            async listerAgents() {
+                console.log('📋 Liste des agents demandée');
+                return [
+                    { code: 'CPA', nom: 'Agent', prenom: 'Principal', groupe: 'A', date_entree: '2024-01-01', statut: 'actif' },
+                    { code: 'CONA', nom: 'Contrôle', prenom: 'Agent', groupe: 'B', date_entree: '2024-01-01', statut: 'actif' },
+                    { code: 'ZA', nom: 'Zone', prenom: 'Agent', groupe: 'C', date_entree: '2024-01-01', statut: 'actif' }
+                ];
+            }
+            
+            async obtenirAgent(code) {
+                console.log(`🔍 Recherche agent: ${code}`);
+                const agents = await this.listerAgents();
+                return agents.find(a => a.code === code) || null;
+            }
+            
+            async ajouterAgent(agent) {
+                console.log(`➕ Ajout agent: ${agent.code}`);
+                return true;
+            }
+            
+            async obtenirStatsGlobales() {
+                return {
+                    totalAgents: 3,
+                    totalRadios: 0,
+                    agentsActifs: 3
+                };
+            }
         }
-
-        // 2. PlanningEngine (version simplifiée)
+        
+        // ==================== PlanningEngine (version simplifiée) ====================
+        console.log('📦 Définition de PlanningEngine...');
         class PlanningEngine {
-            constructor(db) { 
+            constructor(db) {
                 this.db = db;
-                console.log('✅ PlanningEngine créé'); 
+                console.log('✅ PlanningEngine créé');
             }
-            async genererPlanningTheorique() { return []; }
+            
+            async genererPlanningTheorique(codeAgent, mois, annee) {
+                console.log(`📅 Génération planning pour ${codeAgent} - ${mois}/${annee}`);
+                // Simuler un planning
+                const jours = [];
+                for (let i = 1; i <= 30; i++) {
+                    const shifts = ['1', '2', '3', 'R'];
+                    const shift = shifts[Math.floor(Math.random() * shifts.length)];
+                    jours.push({
+                        jour: i,
+                        jour_semaine: ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'][(i-1) % 7],
+                        shift: shift,
+                        est_dimanche: (i % 7 === 0),
+                        ferie: false
+                    });
+                }
+                return jours;
+            }
+            
+            async calculerStatsAgent(code, mois, annee) {
+                console.log(`📊 Calcul stats pour ${code}`);
+                return {
+                    shift1: 7,
+                    shift2: 8,
+                    shift3: 7,
+                    repos: 8,
+                    conges: 0,
+                    maladie: 0,
+                    absence: 0,
+                    totalOperationnels: 22,
+                    totalJours: 30,
+                    joursTravailles: 22,
+                    tauxPresence: 73.3
+                };
+            }
         }
-
-        // 3. ExportUtils (version simplifiée)
+        
+        // ==================== ExportUtils (version simplifiée) ====================
+        console.log('📦 Définition de ExportUtils...');
         class ExportUtils {
-            constructor(db) { 
+            constructor(db) {
                 this.db = db;
-                console.log('✅ ExportUtils créé'); 
+                this.planningEngine = null;
+                console.log('✅ ExportUtils créé');
             }
-            setPlanningEngine(engine) { this.planningEngine = engine; }
+            
+            setPlanningEngine(planningEngine) {
+                this.planningEngine = planningEngine;
+                console.log('✅ PlanningEngine lié à ExportUtils');
+            }
         }
-
-        // 4. DatabaseManager (wrapper)
+        
+        // ==================== DatabaseManager ====================
+        console.log('📦 Définition de DatabaseManager...');
         class DatabaseManager extends SGA_Database {
             constructor() {
                 super();
                 console.log('✅ DatabaseManager créé');
             }
         }
-
-        console.log('=== TOUTES LES CLASSES SONT DÉFINIES ===');
+        
+        console.log('🎉 Toutes les classes de base sont définies!');
     </script>
 
-    <!-- Charger app.js APRÈS avoir défini les classes -->
-    <script src="app.js"></script>
-
-    <!-- Script d'initialisation -->
+    <!-- Chargement DYNAMIQUE et SÉCURISÉ de app.js -->
     <script>
-        // Vérifier que app.js a bien chargé SGA_App
-        setTimeout(function() {
-            console.log('=== VÉRIFICATION FINALE ===');
+        console.log('🔄 Début du chargement dynamique...');
+        const loader = document.getElementById('appLoader');
+        const mainApp = document.getElementById('mainApp');
+        const loaderMessage = document.getElementById('loaderMessage');
+        
+        // Fonction pour charger un script dynamiquement
+        function loadScript(url, onSuccess, onError) {
+            loaderMessage.textContent = `Chargement: ${url}...`;
             
-            const classesToCheck = [
-                'SGA_Database',
-                'DatabaseManager', 
-                'PlanningEngine',
-                'ExportUtils',
-                'SGA_App'
-            ];
-            
-            let allOk = true;
-            const missing = [];
-            
-            classesToCheck.forEach(cls => {
-                if (typeof window[cls] === 'undefined') {
-                    console.error('❌ Classe manquante:', cls);
-                    missing.push(cls);
-                    allOk = false;
-                } else {
-                    console.log('✅ Classe disponible:', cls);
-                }
-            });
-            
-            if (!allOk) {
-                // Afficher l'erreur à l'utilisateur
-                const debugDiv = document.getElementById('mobileDebug');
-                const messageDiv = document.getElementById('debugMessage');
-                
-                messageDiv.innerHTML = `
-                    <p>Classes manquantes:</p>
-                    <ul style="margin: 5px 0; padding-left: 20px;">
-                        ${missing.map(c => `<li>${c}</li>`).join('')}
-                    </ul>
-                    <p><small>Vérifiez que tous les fichiers .js sont dans le même dossier</small></p>
-                `;
-                debugDiv.style.display = 'block';
-                
-                // Essayer de charger app.js à nouveau
-                console.log('🔄 Tentative de rechargement de app.js...');
-                const script = document.createElement('script');
-                script.src = 'app.js';
-                script.onload = function() {
-                    console.log('✅ app.js rechargé');
-                    location.reload();
-                };
-                script.onerror = function() {
-                    console.error('❌ Impossible de charger app.js');
-                    messageDiv.innerHTML += '<p style="color: yellow;">Erreur: Fichier app.js introuvable</p>';
-                };
-                document.head.appendChild(script);
-            } else {
-                console.log('🎉 TOUTES LES CLASSES SONT DISPONIBLES');
-                
-                // Initialiser l'application
-                if (typeof SGA_App !== 'undefined') {
-                    console.log('🚀 Initialisation de SGA_App...');
-                    window.sgaApp = new SGA_App();
-                    
-                    // Rendre disponible globalement pour les boutons HTML
-                    window.sgaApp = window.sgaApp;
-                    
-                    // Démarrer l'application
-                    window.sgaApp.initialize().then(() => {
-                        console.log('✅ Application SGA initialisée avec succès');
-                        // Masquer le panneau de debug s'il était affiché
-                        document.getElementById('mobileDebug').style.display = 'none';
-                    }).catch(err => {
-                        console.error('❌ Erreur initialisation:', err);
-                        const debugDiv = document.getElementById('mobileDebug');
-                        const messageDiv = document.getElementById('debugMessage');
-                        messageDiv.innerHTML = `<p>Erreur d'initialisation: ${err.message}</p>`;
-                        debugDiv.style.display = 'block';
-                    });
-                } else {
-                    console.error('❌ SGA_App existe mais ne peut pas être instancié');
-                }
+            const script = document.createElement('script');
+            script.src = url;
+            script.onload = function() {
+                console.log(`✅ ${url} chargé avec succès`);
+                if (onSuccess) onSuccess();
+            };
+            script.onerror = function() {
+                console.error(`❌ Échec du chargement: ${url}`);
+                if (onError) onError(url);
+            };
+            document.head.appendChild(script);
+        }
+        
+        // Fonction pour vérifier si SGA_App est disponible
+        function checkSGAApp() {
+            if (typeof SGA_App !== 'undefined') {
+                console.log('✅ SGA_App est disponible');
+                return true;
             }
-        }, 500);
+            return false;
+        }
+        
+        // Séquence de chargement principale
+        async function initializeApp() {
+            try {
+                // Étape 1: Créer les instances de base
+                loaderMessage.textContent = 'Création des instances...';
+                window.db = new DatabaseManager();
+                window.planningEngine = new PlanningEngine(window.db);
+                window.exportUtils = new ExportUtils(window.db);
+                window.exportUtils.setPlanningEngine(window.planningEngine);
+                
+                // Étape 2: Essayer de charger app.js
+                loaderMessage.textContent = 'Chargement du module principal...';
+                
+                const appLoaded = await new Promise((resolve) => {
+                    // Essayer de charger app.js
+                    loadScript(
+                        'app.js',
+                        function() {
+                            // Vérifier que SGA_App est maintenant disponible
+                            if (checkSGAApp()) {
+                                resolve(true);
+                            } else {
+                                // Si app.js ne définit pas SGA_App, on le crée manuellement
+                                console.log('⚠️ app.js ne définit pas SGA_App, création manuelle...');
+                                if (typeof window.SGA_App === 'undefined') {
+                                    // Version minimale de SGA_App
+                                    window.SGA_App = class SGA_App {
+                                        constructor() {
+                                            this.db = window.db;
+                                            this.planningEngine = window.planningEngine;
+                                            this.currentPage = 'menu';
+                                            console.log('✅ SGA_App créé manuellement');
+                                        }
+                                        async initialize() {
+                                            console.log('✅ Application initialisée');
+                                            // Afficher l'interface
+                                            loader.style.display = 'none';
+                                            mainApp.style.display = 'block';
+                                        }
+                                        navigateTo(page) {
+                                            console.log(`Navigation vers: ${page}`);
+                                            document.getElementById('pageSubtitle').textContent = page;
+                                        }
+                                    };
+                                }
+                                resolve(true);
+                            }
+                        },
+                        function(failedUrl) {
+                            console.error(`Impossible de charger ${failedUrl}`);
+                            // Créer une version de secours de SGA_App
+                            if (typeof window.SGA_App === 'undefined') {
+                                window.SGA_App = class SGA_App {
+                                    constructor() {
+                                        this.db = window.db;
+                                        this.planningEngine = window.planningEngine;
+                                        this.currentPage = 'menu';
+                                        console.log('✅ SGA_App créé (version de secours)');
+                                    }
+                                    async initialize() {
+                                        console.log('✅ Application initialisée (version de secours)');
+                                        // Afficher l'interface
+                                        loader.style.display = 'none';
+                                        mainApp.style.display = 'block';
+                                        
+                                        // Configurer les événements de base
+                                        document.querySelectorAll('.nav-tab').forEach(tab => {
+                                            tab.addEventListener('click', (e) => {
+                                                const page = e.target.dataset.page;
+                                                this.navigateTo(page);
+                                            });
+                                        });
+                                        
+                                        // Afficher le menu principal
+                                        this.showMainMenu();
+                                    }
+                                    navigateTo(page) {
+                                        console.log(`Navigation vers: ${page}`);
+                                        document.getElementById('pageSubtitle').textContent = page;
+                                        // Masquer toutes les pages
+                                        document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+                                        // Afficher la page sélectionnée
+                                        document.getElementById(`page${page.charAt(0).toUpperCase() + page.slice(1)}`).classList.add('active');
+                                    }
+                                    showMainMenu() {
+                                        const menuGrid = document.querySelector('.menu-grid');
+                                        menuGrid.innerHTML = `
+                                            <div class="menu-card" onclick="sgaApp.navigateTo('agents')">
+                                                <h3><span>👥</span> GESTION DES AGENTS</h3>
+                                                <p>Ajouter, modifier, lister, importer agents</p>
+                                            </div>
+                                            <div class="menu-card" onclick="sgaApp.navigateTo('planning')">
+                                                <h3><span>📅</span> GESTION DU PLANNING</h3>
+                                                <p>Planning global, par agent, par groupe</p>
+                                            </div>
+                                            <div class="menu-card" onclick="sgaApp.navigateTo('stats')">
+                                                <h3><span>📊</span> STATISTIQUES</h3>
+                                                <p>Stats agents, groupes, export Excel/PDF</p>
+                                            </div>
+                                        `;
+                                    }
+                                };
+                            }
+                            resolve(true); // On continue même avec la version de secours
+                        }
+                    );
+                });
+                
+                if (appLoaded) {
+                    // Étape 3: Initialiser l'application
+                    loaderMessage.textContent = 'Initialisation en cours...';
+                    
+                    // Attendre un peu pour être sûr que tout est chargé
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    
+                    // Créer l'instance principale
+                    if (typeof SGA_App !== 'undefined') {
+                        window.sgaApp = new SGA_App();
+                        window.sgaApp.db = window.db;
+                        window.sgaApp.planningEngine = window.planningEngine;
+                        window.sgaApp.exportUtils = window.exportUtils;
+                        
+                        // Initialiser l'application
+                        await window.sgaApp.initialize();
+                    } else {
+                        console.error('❌ SGA_App non disponible après chargement');
+                        throw new Error('SGA_App non disponible');
+                    }
+                    
+                    // Étape 4: Afficher l'application
+                    loader.style.display = 'none';
+                    mainApp.style.display = 'block';
+                    
+                    console.log('🎉 Application SGA prête!');
+                    
+                } else {
+                    throw new Error('Échec du chargement de app.js');
+                }
+                
+            } catch (error) {
+                console.error('❌ Erreur critique:', error);
+                loaderMessage.textContent = `Erreur: ${error.message}. Rechargez la page.`;
+                loader.innerHTML += `
+                    <div style="margin-top: 20px; color: #ff9999;">
+                        <p><strong>Dépannage:</strong></p>
+                        <button onclick="location.reload()" style="
+                            background: #3498db;
+                            color: white;
+                            border: none;
+                            padding: 10px 20px;
+                            border-radius: 5px;
+                            margin: 5px;
+                        ">🔄 Recharger</button>
+                        <button onclick="localStorage.clear(); location.reload()" style="
+                            background: #e74c3c;
+                            color: white;
+                            border: none;
+                            padding: 10px 20px;
+                            border-radius: 5px;
+                            margin: 5px;
+                        ">🧹 Réinitialiser</button>
+                    </div>
+                `;
+            }
+        }
+        
+        // Démarrer l'initialisation quand la page est prête
+        document.addEventListener('DOMContentLoaded', initializeApp);
     </script>
 </body>
 </html>
