@@ -107,29 +107,47 @@
     <script src="planning-engine.js"></script>
     <script src="export-utils.js"></script>
     
-    <!-- Définir les classes globales AVANT app.js -->
+    <!-- Définir les classes globales -->
     <script>
-        // Assurer que les classes sont disponibles globalement
-        if (typeof window !== 'undefined') {
-            if (typeof DatabaseManager === 'undefined') {
-                // Si DatabaseManager n'est pas défini, le créer à partir de SGA_Database
-                window.DatabaseManager = class DatabaseManager extends SGA_Database {
-                    constructor() {
-                        super();
-                    }
-                };
+        // Attendre que DOM soit prêt
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('=== INITIALISATION SGA ===');
+            
+            // Vérifier que toutes les classes sont disponibles
+            if (typeof SGA_Database === 'undefined') {
+                console.error('❌ SGA_Database non défini');
+                return;
             }
             
-            // Créer une instance globale de la base de données
-            window.dbInstance = new (window.DatabaseManager || SGA_Database)();
+            if (typeof PlanningEngine === 'undefined') {
+                console.error('❌ PlanningEngine non défini');
+                return;
+            }
             
-            // Exporter également les classes pour compatibilité
-            window.DatabaseManager = window.DatabaseManager || SGA_Database;
-            window.PlanningEngine = window.PlanningEngine || PlanningEngine;
-            window.ExportUtils = window.ExportUtils || ExportUtils;
-        }
+            if (typeof ExportUtils === 'undefined') {
+                console.error('❌ ExportUtils non défini');
+                return;
+            }
+            
+            // Définir DatabaseManager comme alias de SGA_Database
+            window.DatabaseManager = SGA_Database;
+            
+            console.log('✅ Toutes les classes sont prêtes');
+            
+            // Initialiser l'application après un court délai
+            setTimeout(function() {
+                if (typeof SGA_App !== 'undefined') {
+                    window.sgaApp = new SGA_App();
+                    window.SGA_App = SGA_App;
+                    sgaApp.initialize();
+                } else {
+                    console.error('❌ SGA_App non défini - Vérifiez app.js');
+                }
+            }, 100);
+        });
     </script>
     
+    <!-- Charger app.js APRÈS avoir défini les dépendances -->
     <script src="app.js"></script>
 
     <!-- Service Worker -->
@@ -137,83 +155,14 @@
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', function() {
                 navigator.serviceWorker.register('service-worker.js')
-                    .then(registration => {
-                        console.log('✅ Service Worker enregistré avec succès:', registration.scope);
+                    .then(function(registration) {
+                        console.log('✅ Service Worker enregistré avec succès');
                     })
-                    .catch(err => {
-                        console.error('❌ Erreur enregistrement Service Worker:', err);
+                    .catch(function(error) {
+                        console.log('⚠️ Service Worker non enregistré:', error);
                     });
             });
         }
-    </script>
-    
-    <!-- Script de diagnostic amélioré -->
-    <script>
-        console.log('=== DIAGNOSTIC SGA PWA ===');
-        console.log('Page chargée:', new Date().toLocaleString());
-        
-        // Vérifier l'ordre des scripts chargés
-        window.addEventListener('load', function() {
-            console.log('=== VERIFICATION DES COMPOSANTS ===');
-            
-            const classesToCheck = [
-                { name: 'SGA_Database', global: 'SGA_Database' },
-                { name: 'DatabaseManager', global: 'DatabaseManager' },
-                { name: 'PlanningEngine', global: 'PlanningEngine' },
-                { name: 'ExportUtils', global: 'ExportUtils' },
-                { name: 'SGA_App', global: 'SGA_App' }
-            ];
-            
-            let allOk = true;
-            classesToCheck.forEach(cls => {
-                const exists = typeof window[cls.global] !== 'undefined';
-                console.log(`${exists ? '✅' : '❌'} ${cls.name}: ${exists ? 'DÉFINI' : 'INDÉFINI'}`);
-                if (!exists) allOk = false;
-            });
-            
-            // Vérifier IndexedDB
-            if (!window.indexedDB) {
-                console.error('❌ IndexedDB NON SUPPORTÉ par ce navigateur');
-                allOk = false;
-            } else {
-                console.log('✅ IndexedDB supporté');
-            }
-            
-            // Vérifier Service Worker
-            if (!navigator.serviceWorker) {
-                console.warn('⚠️ Service Worker non supporté');
-            } else {
-                console.log('✅ Service Worker supporté');
-            }
-            
-            if (allOk) {
-                console.log('🎉 TOUS LES COMPOSANTS SONT PRÊTS');
-                
-                // Vérifier si l'application s'est initialisée
-                setTimeout(() => {
-                    if (window.sgaApp && typeof window.sgaApp.initialize === 'function') {
-                        console.log('✅ Application SGA prête');
-                    } else {
-                        console.error('❌ Application SGA non initialisée');
-                    }
-                }, 1000);
-            } else {
-                console.error('❌ DES COMPOSANTS MANQUENT - Vérifiez l\'ordre des scripts');
-                
-                // Afficher un message à l'utilisateur
-                setTimeout(() => {
-                    const errorDiv = document.createElement('div');
-                    errorDiv.id = 'debugPanel';
-                    errorDiv.innerHTML = `
-                        <h4>⚠️ Problème de chargement</h4>
-                        <p>Certains composants ne se sont pas chargés correctement.</p>
-                        <button onclick="location.reload()">🔄 Recharger</button>
-                        <button onclick="localStorage.clear(); location.reload()">🧹 Réinitialiser cache</button>
-                    `;
-                    document.body.appendChild(errorDiv);
-                }, 2000);
-            }
-        });
     </script>
 </body>
 </html>
