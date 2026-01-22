@@ -164,6 +164,124 @@
             });
         }
     </script>
+    <!-- Système de diagnostic visible -->
+<div id="mobileDebug" style="
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    background: #e74c3c;
+    color: white;
+    padding: 15px;
+    border-radius: 10px;
+    z-index: 99999;
+    font-size: 14px;
+    display: none;
+    max-width: 300px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+">
+    <strong>⚠️ ERREUR DETECTÉE</strong>
+    <div id="debugMessage"></div>
+    <div style="margin-top: 10px;">
+        <button onclick="location.reload()" style="
+            background: white;
+            color: #e74c3c;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 5px;
+            margin: 5px;
+        ">🔄 Recharger</button>
+        <button onclick="localStorage.clear(); location.reload()" style="
+            background: #f39c12;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 5px;
+            margin: 5px;
+        ">🧹 Vider cache</button>
+    </div>
+</div>
+
+<script>
+// Vérification automatique des fichiers
+function checkFilesLoaded() {
+    const files = [
+        'database.js',
+        'planning-engine.js', 
+        'export-utils.js',
+        'app.js'
+    ];
+    
+    let missingFiles = [];
+    let loadedFiles = [];
+    
+    // Vérifier chaque fichier
+    files.forEach(file => {
+        const script = Array.from(document.querySelectorAll('script[src]'))
+            .find(s => s.src.includes(file));
+        
+        if (!script) {
+            missingFiles.push(file);
+        } else {
+            loadedFiles.push(file);
+        }
+    });
+    
+    // Afficher les résultats
+    const debugDiv = document.getElementById('mobileDebug');
+    const messageDiv = document.getElementById('debugMessage');
+    
+    if (missingFiles.length > 0) {
+        messageDiv.innerHTML = `
+            <p>Fichiers manquants:</p>
+            <ul style="margin: 5px 0; padding-left: 20px;">
+                ${missingFiles.map(f => `<li>${f}</li>`).join('')}
+            </ul>
+            <p>Fichiers chargés:</p>
+            <ul style="margin: 5px 0; padding-left: 20px;">
+                ${loadedFiles.map(f => `<li>${f}</li>`).join('')}
+            </ul>
+        `;
+        debugDiv.style.display = 'block';
+    } else {
+        messageDiv.innerHTML = '<p style="color: #2ecc71;">✅ Tous les fichiers sont chargés!</p>';
+        debugDiv.style.display = 'block';
+        debugDiv.style.background = '#2ecc71';
+        
+        // Masquer après 5 secondes
+        setTimeout(() => {
+            debugDiv.style.display = 'none';
+        }, 5000);
+    }
+    
+    // Vérifier les classes JavaScript
+    setTimeout(() => {
+        const classes = ['SGA_Database', 'PlanningEngine', 'ExportUtils', 'SGA_App'];
+        const missingClasses = [];
+        
+        classes.forEach(cls => {
+            if (typeof window[cls] === 'undefined') {
+                missingClasses.push(cls);
+            }
+        });
+        
+        if (missingClasses.length > 0) {
+            messageDiv.innerHTML += `
+                <p>Classes manquantes:</p>
+                <ul style="margin: 5px 0; padding-left: 20px;">
+                    ${missingClasses.map(c => `<li>${c}</li>`).join('')}
+                </ul>
+            `;
+            debugDiv.style.display = 'block';
+        }
+    }, 1000);
+}
+
+// Vérifier au chargement
+window.addEventListener('load', checkFilesLoaded);
+
+// Vérifier aussi après 3 secondes (pour les scripts lents)
+setTimeout(checkFilesLoaded, 3000);
+</script>
 </body>
 </html>
 [file content end]
