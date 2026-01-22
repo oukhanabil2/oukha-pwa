@@ -1,3 +1,5 @@
+[file name]: index.html
+[file content begin]
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -100,51 +102,119 @@
     <div id="modalOverlay" class="modal-overlay" style="display:none"></div>
     <div id="modalContainer" class="modal-container" style="display:none"></div>
 
-    <!-- Scripts -->
+    <!-- Scripts - ORDRE CRITIQUE -->
     <script src="database.js"></script>
     <script src="planning-engine.js"></script>
     <script src="export-utils.js"></script>
+    
+    <!-- Définir les classes globales AVANT app.js -->
+    <script>
+        // Assurer que les classes sont disponibles globalement
+        if (typeof window !== 'undefined') {
+            if (typeof DatabaseManager === 'undefined') {
+                // Si DatabaseManager n'est pas défini, le créer à partir de SGA_Database
+                window.DatabaseManager = class DatabaseManager extends SGA_Database {
+                    constructor() {
+                        super();
+                    }
+                };
+            }
+            
+            // Créer une instance globale de la base de données
+            window.dbInstance = new (window.DatabaseManager || SGA_Database)();
+            
+            // Exporter également les classes pour compatibilité
+            window.DatabaseManager = window.DatabaseManager || SGA_Database;
+            window.PlanningEngine = window.PlanningEngine || PlanningEngine;
+            window.ExportUtils = window.ExportUtils || ExportUtils;
+        }
+    </script>
+    
     <script src="app.js"></script>
 
     <!-- Service Worker -->
     <script>
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('service-worker.js')
-                .then(() => console.log('Service Worker enregistré'))
-                .catch(err => console.log('Erreur SW:', err));
+            window.addEventListener('load', function() {
+                navigator.serviceWorker.register('service-worker.js')
+                    .then(registration => {
+                        console.log('✅ Service Worker enregistré avec succès:', registration.scope);
+                    })
+                    .catch(err => {
+                        console.error('❌ Erreur enregistrement Service Worker:', err);
+                    });
+            });
         }
     </script>
+    
+    <!-- Script de diagnostic amélioré -->
     <script>
-// Script de diagnostic
-console.log('=== DIAGNOSTIC SGA ===');
-console.log('Avant chargement des scripts:');
-console.log('Database:', typeof Database);
-console.log('PlanningEngine:', typeof PlanningEngine);
-console.log('ExportUtils:', typeof ExportUtils);
-
-// Attendre que tout soit chargé
-window.addEventListener('load', function() {
-    console.log('=== APRÈS CHARGEMENT COMPLET ===');
-    console.log('Database:', typeof Database);
-    console.log('PlanningEngine:', typeof PlanningEngine);
-    console.log('ExportUtils:', typeof ExportUtils);
-    
-    if (typeof Database === 'undefined') {
-        console.error('❌ Database NON DÉFINI');
-    }
-    if (typeof PlanningEngine === 'undefined') {
-        console.error('❌ PlanningEngine NON DÉFINI');
-    }
-    if (typeof ExportUtils === 'undefined') {
-        console.error('❌ ExportUtils NON DÉFINI');
-    }
-    
-    // Vérifier les chemins des scripts
-    console.log('Scripts chargés:');
-    document.querySelectorAll('script[src]').forEach(script => {
-        console.log('  -', script.src);
-    });
-});
-</script>
+        console.log('=== DIAGNOSTIC SGA PWA ===');
+        console.log('Page chargée:', new Date().toLocaleString());
+        
+        // Vérifier l'ordre des scripts chargés
+        window.addEventListener('load', function() {
+            console.log('=== VERIFICATION DES COMPOSANTS ===');
+            
+            const classesToCheck = [
+                { name: 'SGA_Database', global: 'SGA_Database' },
+                { name: 'DatabaseManager', global: 'DatabaseManager' },
+                { name: 'PlanningEngine', global: 'PlanningEngine' },
+                { name: 'ExportUtils', global: 'ExportUtils' },
+                { name: 'SGA_App', global: 'SGA_App' }
+            ];
+            
+            let allOk = true;
+            classesToCheck.forEach(cls => {
+                const exists = typeof window[cls.global] !== 'undefined';
+                console.log(`${exists ? '✅' : '❌'} ${cls.name}: ${exists ? 'DÉFINI' : 'INDÉFINI'}`);
+                if (!exists) allOk = false;
+            });
+            
+            // Vérifier IndexedDB
+            if (!window.indexedDB) {
+                console.error('❌ IndexedDB NON SUPPORTÉ par ce navigateur');
+                allOk = false;
+            } else {
+                console.log('✅ IndexedDB supporté');
+            }
+            
+            // Vérifier Service Worker
+            if (!navigator.serviceWorker) {
+                console.warn('⚠️ Service Worker non supporté');
+            } else {
+                console.log('✅ Service Worker supporté');
+            }
+            
+            if (allOk) {
+                console.log('🎉 TOUS LES COMPOSANTS SONT PRÊTS');
+                
+                // Vérifier si l'application s'est initialisée
+                setTimeout(() => {
+                    if (window.sgaApp && typeof window.sgaApp.initialize === 'function') {
+                        console.log('✅ Application SGA prête');
+                    } else {
+                        console.error('❌ Application SGA non initialisée');
+                    }
+                }, 1000);
+            } else {
+                console.error('❌ DES COMPOSANTS MANQUENT - Vérifiez l\'ordre des scripts');
+                
+                // Afficher un message à l'utilisateur
+                setTimeout(() => {
+                    const errorDiv = document.createElement('div');
+                    errorDiv.id = 'debugPanel';
+                    errorDiv.innerHTML = `
+                        <h4>⚠️ Problème de chargement</h4>
+                        <p>Certains composants ne se sont pas chargés correctement.</p>
+                        <button onclick="location.reload()">🔄 Recharger</button>
+                        <button onclick="localStorage.clear(); location.reload()">🧹 Réinitialiser cache</button>
+                    `;
+                    document.body.appendChild(errorDiv);
+                }, 2000);
+            }
+        });
+    </script>
 </body>
 </html>
+[file content end]
