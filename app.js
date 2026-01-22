@@ -1,7 +1,7 @@
 // Application SGA PWA - Version complète corrigée
 class SGA_App {
     constructor() {
-        this.db = sgaDB;
+        this.db = null;
         this.planningEngine = null;
         this.currentPage = 'menu';
         this.history = [];
